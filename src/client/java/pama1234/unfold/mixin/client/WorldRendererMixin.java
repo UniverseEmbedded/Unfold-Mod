@@ -13,7 +13,7 @@ import pama1234.unfold.logic.UnfoldManager;
 public class WorldRendererMixin {
 
     @Inject(method = "setupTerrain", at = @At("HEAD"), cancellable = true)
-    private void unfold_skipTerrainSetup(Camera camera, Frustum frustum, boolean hasForcedFrustum, int frame, boolean spectator, CallbackInfo ci) {
+    private void unfold_skipTerrainSetup(Camera camera, Frustum frustum, boolean hasForcedFrustum, boolean spectator, CallbackInfo ci) {
         if (UnfoldManager.unfolding) {
             // 在Unfold模式下，完全跳过 setupTerrain 的所有逻辑。
             // 这会禁用视锥体剔除，但能从根源上避免死循环。
