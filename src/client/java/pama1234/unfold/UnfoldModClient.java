@@ -62,7 +62,8 @@ public class UnfoldModClient implements ClientModInitializer {
                 if (UnfoldManager.unfolding) {
                     // 进入展开模式
                     UnfoldManager.currentDirection = ViewDirection.getClosest(player);
-                    player.sendMessage(Text.of("Unfold Mode Activated: " + UnfoldManager.currentDirection.name()), false);
+                    UnfoldMod.LOGGER.info("Unfold Mode Activated: {}", UnfoldManager.currentDirection.name());
+
 
                     // 保存原始视角并切换到第三人称
                     originalPerspective = client.options.getPerspective();
@@ -74,7 +75,7 @@ public class UnfoldModClient implements ClientModInitializer {
 
                 } else {
                     // 退出展开模式
-                    player.sendMessage(Text.of("Unfold Mode Deactivated"), false);
+                    UnfoldMod.LOGGER.info("Unfold Mode Deactivated");
 
                     // 恢复原始视角
                     if (originalPerspective != null) {
@@ -192,9 +193,12 @@ public class UnfoldModClient implements ClientModInitializer {
             if (targetPos != null) {
                 // 执行传送
                 player.setPos(targetPos.x, targetPos.y, targetPos.z);
+                // 传送后清除垂直方向的速度，避免落地伤害或二次弹跳
+                player.setVelocity(player.getVelocity().x, 0, player.getVelocity().z);
+
                 teleportCooldown = 5; // 设置冷却时间，防止连续传送
 
-                player.sendMessage(Text.of("DEBUG: Teleported to " + targetPos.toString()), false);
+                UnfoldMod.LOGGER.info("Teleport successful. Player moved to {}. Cooldown set.", targetPos);
             }
         }
     }

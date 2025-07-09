@@ -3,13 +3,12 @@ package pama1234.unfold.logic;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.world.ClientWorld;
-import net.minecraft.text.Text;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.RaycastContext;
+import pama1234.unfold.UnfoldMod;
 import pama1234.unfold.util.ViewDirection;
 
 public class UnfoldTeleportLogic {
@@ -34,36 +33,37 @@ public class UnfoldTeleportLogic {
         ClientWorld world = MinecraftClient.getInstance().world;
         if (world == null) return null;
 
-        // 精确的触发条件检查
-        if (!shouldTriggerTeleport(player, world)) {
+        // 【已修复】精确的触发条件检查
+        if (!shouldTriggerTeleport(player)) {
             return null;
         }
 
         // 获取玩家的移动输入并转换为期望移动方向
         Vec3d desiredMoveDirection = getDesiredMoveDirection(player);
         if (desiredMoveDirection.lengthSquared() < 0.001) {
-            return null; // 没有移动输入
+            return null; // 没有移动输入，不触发
         }
 
-        player.sendMessage(Text.of("DEBUG: Teleport triggered! Searching for target..."), false);
+        UnfoldMod.LOGGER.info("Teleport triggered! Searching for target...");
 
         // 执行基于展开轴的位置投影搜索
         return findLandingPlatformWithProjection(player, desiredMoveDirection);
     }
 
     /**
-     * 精确的触发条件检查
-     * 只有当玩家即将或已经离开物理支撑时才触发
+     * 【已修复】精确的触发条件检查
+     * 只有当玩家明确离开地面时才触发
      */
-    private static boolean shouldTriggerTeleport(ClientPlayerEntity player, ClientWorld world) {
-        // 条件1：玩家的Y轴速度不为零（正在跳跃或下落）
-        boolean isMovingVertically = Math.abs(player.getVelocity().y) > 0.001;
+    private static boolean shouldTriggerTeleport(ClientPlayerEntity player) {
+        // 条件1: 玩家必须在空中。player.isOnGround() 是游戏内置的最可靠的地面检测。
+        boolean isAirborne = !player.isOnGround();
 
-        // 条件2：玩家脚下直接接触的方块是空气
-        BlockPos playerFeetPos = player.getBlockPos();
-        boolean isOnAir = world.isAir(playerFeetPos.down());
+        // 条件2: 玩家的速度不是在快速上升（即，不是刚起跳）。
+        // 这可以防止在跳跃的上升阶段就触发传送，体验更佳。
+        // 允许在跳跃最高点或下落时触发。
+        boolean isNotAscending = player.getVelocity().y <= 0.1;
 
-        return isMovingVertically || isOnAir;
+        return isAirborne && isNotAscending;
     }
 
     /**
@@ -173,6 +173,7 @@ public class UnfoldTeleportLogic {
     private static Vec3d castRayAlongUnfoldAxis(ClientPlayerEntity player, Vec3d origin, Vec3d unfoldAxis, ClientWorld world) {
         // 射线终点
         Vec3d rayEnd = origin.add(unfoldAxis.multiply(MAX_DISTANCE));
+        UnfoldMod.LOGGER.info("Casting ray from {} to {}", origin, rayEnd);
 
         // 执行射线投射
         RaycastContext context = new RaycastContext(
@@ -191,14 +192,15 @@ public class UnfoldTeleportLogic {
             // 检查着陆点是否安全（上方有足够空间）
             if (world.isAir(landingPos.up()) && world.isAir(landingPos.up(2))) {
                 Vec3d targetPos = Vec3d.ofBottomCenter(landingPos.up());
-                player.sendMessage(Text.of("DEBUG: Platform found at " + landingPos.toString()), false);
+                UnfoldMod.LOGGER.info("Safe platform found at {}, teleporting to {}", landingPos, targetPos);
                 return targetPos;
             } else {
-                player.sendMessage(Text.of("DEBUG: Platform found but unsafe (blocked above)"), false);
+                UnfoldMod.LOGGER.info("Platform found at {} but it's unsafe (blocked above)", landingPos);
             }
+        } else {
+            UnfoldMod.LOGGER.info("No platform found along unfold axis (Raycast miss)");
         }
 
-        player.sendMessage(Text.of("DEBUG: No platform found along unfold axis"), false);
         return null;
     }
 }

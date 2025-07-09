@@ -5,13 +5,14 @@ import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.math.Vec3d;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import pama1234.unfold.network.TeleportRequestPayload;
-
-import java.util.logging.Logger;
 
 public class UnfoldMod implements ModInitializer {
 
-    public static final Logger LOGGER = Logger.getLogger("Unfold-Debug-main");
+    public static final String MOD_ID = "unfold";
+    public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
     @Override
     public void onInitialize() {
@@ -26,6 +27,7 @@ public class UnfoldMod implements ModInitializer {
             // 服务端进行安全校验（例如，检查传送距离是否过远，防止作弊）
             // 256.0 是一个比较合理的上限
             if (player.getPos().distanceTo(targetPos) > 256.0) {
+                LOGGER.warn("Player {} tried to teleport too far, from {} to {}", player.getName().getString(), player.getPos(), targetPos);
                 return;
             }
 
@@ -35,5 +37,7 @@ public class UnfoldMod implements ModInitializer {
                 player.teleport(targetPos.x, targetPos.y, targetPos.z, false);
             });
         });
+
+        LOGGER.info("Unfold Mod initialized.");
     }
 }
