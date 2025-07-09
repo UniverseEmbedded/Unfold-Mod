@@ -46,6 +46,22 @@ public abstract class GameRendererMixin {
         return projectionMatrix;
     }
 
+    @ModifyArg(
+            method = "renderWorld",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/client/render/WorldRenderer;setupFrustum(Lnet/minecraft/util/math/Vec3d;Lorg/joml/Matrix4f;Lorg/joml/Matrix4f;)V"
+            ),
+            index = 2
+    )
+    private Matrix4f modifyFrustumProjectionMatrix(Matrix4f projMat) {
+        if (UnfoldManager.unfolding) {
+            // 这里要确保返回的矩阵和下面 rendering 用的矩阵参数完全一致
+            return createOrthoMatrix(8.0f);
+        }
+        return projMat;
+    }
+
 
     @ModifyExpressionValue(
             method = "renderWorld",

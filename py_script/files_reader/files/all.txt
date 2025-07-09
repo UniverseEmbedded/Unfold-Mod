@@ -1,0 +1,8 @@
+src\client\java
+src\main\java
+src\client\resources\unfold.client.mixins.json
+src\main\resources\fabric.mod.json
+src\main\resources\unfold.mixins.json
+build.gradle
+gradle.properties
+settings.gradle
