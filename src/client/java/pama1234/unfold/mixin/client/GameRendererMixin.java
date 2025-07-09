@@ -1,5 +1,6 @@
 package pama1234.unfold.mixin.client;
 
+import com.llamalad7.mixinextras.sugar.Local;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.render.GameRenderer;
@@ -43,21 +44,26 @@ public abstract class GameRendererMixin {
         return projectionMatrix;
     }
 
+
     @ModifyExpressionValue(
             method = "renderWorld",
-            at = @At(value = "INVOKE", target = "Lorg/joml/Quaternionf;conjugate(Lorg/joml/Quaternionf;)Lorg/joml/Quaternionf;")
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lorg/joml/Quaternionf;conjugate(Lorg/joml/Quaternionf;)Lorg/joml/Quaternionf;"
+            )
     )
-    private Quaternionf modifyCameraRotation(Quaternionf original, RenderTickCounter tickCounter) {
+    private Quaternionf modifyCameraRotation(Quaternionf original, @Local(argsOnly = true) RenderTickCounter tickCounter) {
         if (UnfoldManager.unfolding && this.client.player != null) {
             ClientPlayerEntity player = this.client.player;
-            float progress = UnfoldManager.getTransitionProgress(tickCounter.getTickDelta());
+            // 修正 #1: 使用 getTickProgress(false) 替代 getTickDelta()
+            float progress = UnfoldManager.getTransitionProgress(tickCounter.getTickProgress(false));
 
             float targetYaw = UnfoldManager.currentDirection.yaw;
             float targetPitch = UnfoldManager.currentDirection.pitch;
 
-            // 平滑过渡
-            float smoothedYaw = ViewDirection.lerpAngle(player.getPrevYaw(), targetYaw, progress);
-            float smoothedPitch = MathHelper.lerp(progress, player.getPrevPitch(), targetPitch);
+            // 修正 #2 & #3: 使用 lastYaw 和 lastPitch 字段替代 getPrevYaw() 和 getPrevPitch() 方法
+            float smoothedYaw = ViewDirection.lerpAngle(player.lastYaw, targetYaw, progress);
+            float smoothedPitch = MathHelper.lerp(progress, player.lastPitch, targetPitch);
 
             // 直接设置最终旋转，忽略玩家输入
             return new Quaternionf().rotationYXZ(
