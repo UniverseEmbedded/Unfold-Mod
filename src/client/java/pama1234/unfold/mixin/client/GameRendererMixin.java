@@ -5,7 +5,6 @@ import com.llamalad7.mixinextras.sugar.Local;
 import com.mojang.blaze3d.systems.ProjectionType;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.render.GameRenderer;
 import net.minecraft.client.render.RenderTickCounter;
 import net.minecraft.util.math.MathHelper;
@@ -16,8 +15,8 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.ModifyArg;
+import pama1234.unfold.logic.UnfoldConfig;
 import pama1234.unfold.logic.UnfoldManager;
-import pama1234.unfold.util.ViewDirection;
 
 @Mixin(GameRenderer.class)
 public abstract class GameRendererMixin {
@@ -26,26 +25,34 @@ public abstract class GameRendererMixin {
     @Final
     private MinecraftClient client;
 
-    private Matrix4f createOrthoMatrix(float scale) {
-        float width = scale * this.client.getWindow().getFramebufferWidth() / (float) this.client.getWindow().getFramebufferHeight();
+    // --- 抽取出一个独立的、可复用的矩阵创建方法 ---
+    private Matrix4f createUnfoldOrthoMatrix() {
+        // 使用 UnfoldConfig 中的参数
+        float scale = UnfoldConfig.SCALE;
+        float aspectRatio = (float) this.client.getWindow().getFramebufferWidth() / (float) this.client.getWindow().getFramebufferHeight();
+        float width = scale * aspectRatio;
         float height = scale;
-        return new Matrix4f().setOrtho(-width, width, -height, height, 0.05F, 1000.0F);
+
+        // 【关键】使用正确的近/远裁剪面值
+        return new Matrix4f().setOrtho(-width, width, -height, height, UnfoldConfig.MIN_DISTANCE, UnfoldConfig.MAX_DISTANCE);
     }
 
+    // --- 修改点1: 最终渲染矩阵 ---
     @ModifyArg(
             method = "renderWorld",
             at = @At(value = "INVOKE", target = "Lnet/minecraft/client/render/WorldRenderer;render(Lnet/minecraft/client/util/ObjectAllocator;Lnet/minecraft/client/render/RenderTickCounter;ZLnet/minecraft/client/render/Camera;Lnet/minecraft/client/render/GameRenderer;Lorg/joml/Matrix4f;Lorg/joml/Matrix4f;)V"),
             index = 6
     )
-    private Matrix4f modifyProjectionMatrix(Matrix4f projectionMatrix) {
+    private Matrix4f modifyProjectionMatrixForRendering(Matrix4f projectionMatrix) {
         if (UnfoldManager.unfolding) {
-            Matrix4f orthoMatrix = createOrthoMatrix(8.0f); // 固定的缩放值，可以后续做成可配置
+            Matrix4f orthoMatrix = createUnfoldOrthoMatrix();
             RenderSystem.setProjectionMatrix(orthoMatrix, ProjectionType.ORTHOGRAPHIC);
             return orthoMatrix;
         }
         return projectionMatrix;
     }
 
+    // --- 修改点2: 视锥体剔除矩阵 ---
     @ModifyArg(
             method = "renderWorld",
             at = @At(
@@ -54,10 +61,10 @@ public abstract class GameRendererMixin {
             ),
             index = 2
     )
-    private Matrix4f modifyFrustumProjectionMatrix(Matrix4f projMat) {
+    private Matrix4f modifyProjectionMatrixForFrustum(Matrix4f projMat) {
         if (UnfoldManager.unfolding) {
-            // 这里要确保返回的矩阵和下面 rendering 用的矩阵参数完全一致
-            return createOrthoMatrix(8.0f);
+            // 【重要】确保这里返回和上面完全一样的矩阵
+            return createUnfoldOrthoMatrix();
         }
         return projMat;
     }
@@ -72,24 +79,25 @@ public abstract class GameRendererMixin {
     )
     private Quaternionf modifyCameraRotation(Quaternionf original, @Local(argsOnly = true) RenderTickCounter tickCounter) {
         if (UnfoldManager.unfolding && this.client.player != null) {
-            ClientPlayerEntity player = this.client.player;
-            // 直接将 progress 设为 1.0f，表示瞬间完成过渡
-            float progress = 1.0f;
-
+            // 我们不再需要插值了，因为是瞬间切换
             float targetYaw = UnfoldManager.currentDirection.yaw;
             float targetPitch = UnfoldManager.currentDirection.pitch;
 
-            // 使用 player.getYaw() 和 player.getPitch() 获取当前玩家实际朝向，以便从当前朝向直接跳到目标朝向
-            // 注意：这里不再使用 player.lastYaw/lastPitch，因为不再有平滑过渡，每次都从当前玩家视角直接跳转
-            float snappedYaw = ViewDirection.lerpAngle(player.getYaw(), targetYaw, progress);
-            float snappedPitch = MathHelper.lerp(progress, player.getPitch(), targetPitch);
+            // 【关键修改】严格按照 OrthoCamera 的方式构建四元数
+            // 1. 使用 rotationXYZ 方法
+            // 2. 第一个参数是 Pitch
+            // 3. 第二个参数是 Yaw，并且需要调整180度
+            // 4. 第三个参数是 Roll，为 0
 
-            // 直接设置最终旋转，忽略玩家输入
-            return new Quaternionf().rotationYXZ(
-                    (snappedYaw + 180.0f) * MathHelper.RADIANS_PER_DEGREE,
-                    -snappedPitch * MathHelper.RADIANS_PER_DEGREE,
-                    0.0F
-            );
+            // 注意：我们直接使用 targetPitch，不需要取反。OrthoCamera 也没有取反。
+            float pitchRad = targetPitch * MathHelper.RADIANS_PER_DEGREE;
+
+            // OrthoCamera 使用 yaw_in_rad - PI。我们使用 yaw_in_deg + 180 再转弧度，效果一样。
+            float yawRad = (targetYaw + 180.0f) * MathHelper.RADIANS_PER_DEGREE;
+
+            // 这里不再使用 `new Quaternionf()...` 而是直接修改 `original` 对象
+            // 这也是 OrthoCamera 的做法，更加高效，避免了不必要的对象创建。
+            return original.rotationXYZ(pitchRad, yawRad, 0.0f);
         }
         return original;
     }

@@ -45,12 +45,24 @@ public enum ViewDirection {
     }
 
     public static ViewDirection getClosest(float yaw, float pitch) {
+        // 【关键新增】健壮性检查，防止输入无效值
+        if (Float.isNaN(yaw) || Float.isNaN(pitch) || Float.isInfinite(yaw) || Float.isInfinite(pitch)) {
+            System.err.println("!!! WARNING: Invalid yaw/pitch provided to getClosest. Falling back to default.");
+            return values()[0]; // 如果输入无效，直接返回一个默认值，避免后续计算崩溃
+        }
+
         ViewDirection closest = values()[0];
         float minDistance = Float.MAX_VALUE;
 
         for (ViewDirection direction : values()) {
             float yawDiff = Math.abs(normalizeAngle(yaw - direction.yaw));
             float pitchDiff = Math.abs(pitch - direction.pitch);
+
+            // 【关键新增】再次检查计算结果
+            if (Float.isNaN(yawDiff) || Float.isNaN(pitchDiff)) {
+                continue; // 如果计算出错，跳过这个方向
+            }
+
             float distance = yawDiff + pitchDiff;
 
             if (distance < minDistance) {
