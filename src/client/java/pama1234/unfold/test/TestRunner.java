@@ -43,7 +43,6 @@ public class TestRunner {
         this.currentTask = null;
         UnfoldMod.LOGGER.info("====== Starting Test Sequence ======");
 
-        // 启动第一个测试
         buildNextTestCase();
     }
 
@@ -52,34 +51,32 @@ public class TestRunner {
 
         ClientPlayerEntity player = client.player;
         if (player == null) {
-            stopTest(true); // 意外终止
+            stopTest(true);
             return;
         }
 
         if (currentTask == null) {
             if (taskQueue.isEmpty()) {
-                // 当前大用例已完成
                 if (!currentTestCaseName.isEmpty()) {
                     report.record(currentTestCaseName, true, "All steps passed.");
                     currentTestCaseName = "";
                 }
-                // 准备跑下一个大用例
                 buildNextTestCase();
-                return; // 等待下一帧开始新任务
+                return;
             }
 
             currentTask = taskQueue.poll();
-            UnfoldMod.LOGGER.info("Running task: {}", currentTask.getDescription());
+            UnfoldMod.LOGGER.info("[TEST] Running task: {}", currentTask.getDescription());
             currentTask.onStart(this, player);
         }
 
         try {
             if (currentTask.run(this, player)) {
-                currentTask = null; // 任务完成，下一帧取新任务
+                currentTask = null;
             }
         } catch (AssertionError e) {
             report.record(currentTestCaseName, false, "Failed at step [" + currentTask.getDescription() + "]: " + e.getMessage());
-            taskQueue.clear(); // 清空剩余任务
+            taskQueue.clear();
             currentTask = null;
         }
     }
@@ -92,10 +89,7 @@ public class TestRunner {
         String nextTestName = testNamesToRun.poll();
         this.currentTestCaseName = nextTestName;
 
-        // 环境清理总是第一个任务
         taskQueue.add(new SetupSceneTask());
-
-        // 根据名称构建测试任务队列
         buildTestByName(nextTestName);
     }
 
@@ -121,36 +115,49 @@ public class TestRunner {
     // --- 测试用例构造 ---
 
     public static List<String> getTestNames() {
-        return new ArrayList<>(Collections.singletonList("horizontal_jump_up"));
+        // 【已更新】测试用例名称
+        return new ArrayList<>(Collections.singletonList("horizontal_jump_across"));
     }
 
     private void buildTestByName(String name) {
-        if ("horizontal_jump_up".equals(name)) {
-            buildHorizontalJumpUpTest();
+        if ("horizontal_jump_across".equals(name)) {
+            buildHorizontalJumpAcrossTest();
         } else {
             UnfoldMod.LOGGER.warn("Test case not found: {}", name);
             report.record(name, false, "Test case not found.");
         }
     }
 
-    private void buildHorizontalJumpUpTest() {
-        taskQueue.add(new LogTask("--- Starting Horizontal Jump Up Test (View +X) ---"));
+    /**
+     * 【全新，正确的测试用例】
+     * 测试FEZ风格的视错觉跳跃：横向距离远，但视觉上相邻。
+     */
+    private void buildHorizontalJumpAcrossTest() {
+        taskQueue.add(new LogTask("--- Starting Horizontal Jump Across Test (View +Z) ---"));
 
         // 1. 场景搭建
         BlockPos center = new BlockPos(0, 64, 0);
         taskQueue.add(new ClearSceneTask(center, 30));
-        taskQueue.add(new BuildPlatformTask(center, Blocks.STONE.getDefaultState(), new Vec3i(5, 1, 5)));
-        taskQueue.add(new BuildPlatformTask(center.up(4), Blocks.GOLD_BLOCK.getDefaultState(), new Vec3i(5, 1, 5)));
+        // 起始平台在 X=0
+        taskQueue.add(new BuildPlatformTask(new BlockPos(0, 64, 0), Blocks.STONE.getDefaultState(), new Vec3i(1, 1, 5)));
+        // 目标平台在 X=4 (横向空3格), Y=65 (高1格)
+        taskQueue.add(new BuildPlatformTask(new BlockPos(4, 65, 0), Blocks.GOLD_BLOCK.getDefaultState(), new Vec3i(1, 1, 5)));
 
         // 2. 玩家状态设置
         taskQueue.add(new SetPlayerPosTask(new Vec3d(0.5, 65.0, 0.5)));
-        taskQueue.add(new EnterUnfoldModeTask(ViewDirection.POS_X));
+        // 关键：使用 +Z 视角来消除 X 轴的深度
+        taskQueue.add(new EnterUnfoldModeTask(ViewDirection.POS_Z));
 
         // 3. 动作与等待
+        // 模拟玩家向右(+X)走一小步，然后跳跃
+        // 这会让 checkHorizontalAirStrafe 中的 velocity.normalize() 得到正确的方向
+        taskQueue.add(new SimulateMoveTask(new Vec3d(0.2, 0, 0), 2)); // 短暂施加速率
+        taskQueue.add(new WaitTask(3));
         taskQueue.add(new SimulateJumpTask());
-        taskQueue.add(new WaitTask(20)); // 等待跳跃和瞬移完成
+        taskQueue.add(new WaitTask(25)); // 等待跳跃、瞬移和落地
 
         // 4. 最终结果断言
-        taskQueue.add(new AssertPositionTask(center.up(5), 1.0));
+        // 玩家应该落在黄金平台上
+        taskQueue.add(new AssertPositionTask(new BlockPos(4, 66, 0), 1.5));
     }
 }

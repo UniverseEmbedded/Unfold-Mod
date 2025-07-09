@@ -80,19 +80,27 @@ public class UnfoldTeleportLogic {
 
     // --- 水平模式逻辑 ---
     private static Vec3d handleHorizontalTeleport(ClientPlayerEntity player, ClientWorld world) {
-        // 【已修复】使用 player.jumping 字段
-        if (player.jumping) {
+        // 1. 跳跃到上方 (当玩家意图向上时)
+        if (player.jumping && player.getVelocity().y > 0) {
             Vec3d target = checkHorizontalJump(player, world);
             if (target != null) return target;
         }
 
+        // 2. 边缘下落
         if (player.isSneaking() && isAtEdge(player, world)) {
             Vec3d target = checkHorizontalSneak(player, world);
             if (target != null) return target;
         }
 
+        // 3. 左右移动穿越 (地面)
         if (player.isOnGround() && isAboutToCollide(player, world)) {
             Vec3d target = checkHorizontalWalk(player, world);
+            if (target != null) return target;
+        }
+
+        // 4. 【新增】悬空侧向跨越 (核心FEZ玩法)
+        if (!player.isOnGround()) {
+            Vec3d target = checkHorizontalAirStrafe(player, world);
             if (target != null) return target;
         }
 
@@ -236,5 +244,54 @@ public class UnfoldTeleportLogic {
         double y = -Math.sin(pitchRad);
         double z = Math.cos(yawRad) * Math.cos(pitchRad);
         return new Vec3d(x, y, z).normalize();
+    }
+
+    /**
+     * 【新增】检测玩家在空中进行侧向移动时，是否可以瞬移到视觉上相邻的平台。
+     * 这才是 FEZ 风格的核心。
+     */
+    private static Vec3d checkHorizontalAirStrafe(ClientPlayerEntity player, ClientWorld world) {
+        // 1. 获取玩家的水平移动方向（忽略Y轴）
+        Vec3d horizontalVelocity = new Vec3d(player.getVelocity().x, 0, player.getVelocity().z);
+        if (horizontalVelocity.lengthSquared() < 0.001) {
+            return null; // 没有水平移动意图
+        }
+        Vec3d moveDir = horizontalVelocity.normalize();
+
+        // 2. 准备从玩家身体前方，向下发射探测射线
+        float playerWidth = player.getWidth();
+        // 射线起点稍微领先于玩家，以确保能探测到前方的平台
+        Vec3d origin = player.getPos().add(moveDir.multiply(playerWidth / 2 + 0.1));
+
+        // 3. 发射垂直向下的探测射线
+        RaycastContext context = new RaycastContext(
+                origin,
+                origin.add(0, -MAX_DISTANCE, 0), // 纯粹向下探测
+                RaycastContext.ShapeType.COLLIDER,
+                RaycastContext.FluidHandling.NONE,
+                player
+        );
+
+        BlockHitResult hit = world.raycast(context);
+
+        if (isValidHit(hit)) {
+            BlockPos targetBlock = hit.getBlockPos();
+
+            // 【已修复】使用最直接可靠的方法：player.getBlockPos().down()
+            // 获取玩家当前站立的方块位置
+            BlockPos currentStandingBlock = player.getBlockPos().down();
+
+            // 检查找到的平台是否与玩家当前站立的平台不同
+            boolean isNewPlatform = !targetBlock.equals(currentStandingBlock);
+
+            if (isSafePlatform(world, targetBlock, Direction.UP) && isNewPlatform) {
+                // 瞬移目标是：保持被击中平台的X和Z，但Y值是平台上方
+                Vec3d targetPos = Vec3d.ofBottomCenter(targetBlock.up());
+                UnfoldMod.LOGGER.info("Air strafe opportunity found at {}", targetPos);
+                return targetPos;
+            }
+        }
+
+        return null;
     }
 }
