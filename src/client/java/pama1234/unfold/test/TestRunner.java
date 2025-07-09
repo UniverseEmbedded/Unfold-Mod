@@ -24,7 +24,6 @@ public class TestRunner {
     private String currentTestCaseName = "";
     private Queue<String> testNamesToRun = new LinkedList<>();
 
-
     private TestRunner() {}
 
     public void startTest(String testName) {
@@ -42,7 +41,6 @@ public class TestRunner {
         this.isRunning = true;
         this.currentTask = null;
         UnfoldMod.LOGGER.info("====== Starting Test Sequence ======");
-
         buildNextTestCase();
     }
 
@@ -86,6 +84,7 @@ public class TestRunner {
             stopTest(false);
             return;
         }
+
         String nextTestName = testNamesToRun.poll();
         this.currentTestCaseName = nextTestName;
 
@@ -138,13 +137,16 @@ public class TestRunner {
         // 1. 场景搭建
         BlockPos center = new BlockPos(0, 64, 0);
         taskQueue.add(new ClearSceneTask(center, 30));
+
         // 起始平台在 X=0
         taskQueue.add(new BuildPlatformTask(new BlockPos(0, 64, 0), Blocks.STONE.getDefaultState(), new Vec3i(1, 1, 5)));
+
         // 目标平台在 X=4 (横向空3格), Y=65 (高1格)
         taskQueue.add(new BuildPlatformTask(new BlockPos(4, 65, 0), Blocks.GOLD_BLOCK.getDefaultState(), new Vec3i(1, 1, 5)));
 
         // 2. 玩家状态设置
         taskQueue.add(new SetPlayerPosTask(new Vec3d(0.5, 65.0, 0.5)));
+
         // 关键：使用 +Z 视角来消除 X 轴的深度
         taskQueue.add(new EnterUnfoldModeTask(ViewDirection.NEG_X));
 
@@ -157,7 +159,7 @@ public class TestRunner {
         taskQueue.add(new WaitTask(25)); // 等待跳跃、瞬移和落地
 
         // 4. 最终结果断言
-        // 玩家应该落在黄金平台上
-        taskQueue.add(new AssertPositionTask(new BlockPos(4, 66, 0), 1.5));
+        // 【修改】玩家应该落在黄金平台上 - 检测脚底方块而不是位置
+        taskQueue.add(new AssertBlockBelowTask(Blocks.GOLD_BLOCK, "Gold"));
     }
 }

@@ -1,9 +1,3 @@
-好的，根据你提供的34个项目文件，我详细分析了该项目的架构、核心功能、技术实现和现有文档，为你生成了一份全面且专业的 `README.md` 文档。
-
-这份文档不仅整合了你原始 `README.md` 的优秀内容，还根据源代码的实际逻辑进行了深化、修正和补充，使其更加准确和详尽。
-
----
-
 # Unfold Mod
 
 [![Minecraft Version: 1.21.5](https://img.shields.io/badge/Minecraft-1.21.5-brightgreen.svg)](https://www.minecraft.net/)
