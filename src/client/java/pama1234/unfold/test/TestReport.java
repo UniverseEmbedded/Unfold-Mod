@@ -12,6 +12,10 @@ import java.util.Map;
 public class TestReport {
     private final Map<String, TestResult> results = new LinkedHashMap<>();
 
+    public void clear() {
+        results.clear();
+    }
+
     public void record(String testName, boolean success, String message) {
         results.put(testName, new TestResult(success, message));
     }

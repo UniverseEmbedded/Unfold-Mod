@@ -146,7 +146,7 @@ public class TestRunner {
         // 2. 玩家状态设置
         taskQueue.add(new SetPlayerPosTask(new Vec3d(0.5, 65.0, 0.5)));
         // 关键：使用 +Z 视角来消除 X 轴的深度
-        taskQueue.add(new EnterUnfoldModeTask(ViewDirection.POS_Z));
+        taskQueue.add(new EnterUnfoldModeTask(ViewDirection.NEG_X));
 
         // 3. 动作与等待
         // 模拟玩家向右(+X)走一小步，然后跳跃
