@@ -4,6 +4,7 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.option.Perspective;
 import net.minecraft.client.util.InputUtil;
@@ -14,23 +15,19 @@ import pama1234.unfold.logic.UnfoldManager;
 import pama1234.unfold.logic.UnfoldTeleportLogic;
 import pama1234.unfold.network.TeleportRequestPayload;
 import pama1234.unfold.util.ViewDirection;
-import net.minecraft.client.network.ClientPlayerEntity;
 
 public class UnfoldModClient implements ClientModInitializer {
 
     private static KeyBinding toggleKey;
-    // G键已移除: private static KeyBinding teleportKey;
     private static Perspective originalPerspective;
-
     private static int toggleCooldown = 0;
-    private static int teleportCooldown = 0; // 新增一个传送冷却，防止因位置修正抖动导致反复传送
+    private static int teleportCooldown = 0;
 
     @Override
     public void onInitializeClient() {
         toggleKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "key.unfold.toggle", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_F, "category.unfold"
         ));
-        // teleportKey 的注册已移除
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             ClientPlayerEntity player = client.player;
@@ -39,26 +36,24 @@ public class UnfoldModClient implements ClientModInitializer {
             }
 
             // --- 模式切换逻辑 ---
-            if (toggleCooldown > 0) {
-                toggleCooldown--;
-            }
+            if (toggleCooldown > 0) toggleCooldown--;
             if (toggleKey.wasPressed() && toggleCooldown == 0) {
-                toggleCooldown = 5; // 0.25秒防抖冷却
-
+                toggleCooldown = 5;
                 UnfoldManager.unfolding = !UnfoldManager.unfolding;
-
                 if (client.options != null) {
                     if (UnfoldManager.unfolding) {
                         UnfoldManager.currentDirection = ViewDirection.getClosest(player);
                         player.sendMessage(Text.of("Unfold Mode Activated: " + UnfoldManager.currentDirection.name()), false);
-
                         originalPerspective = client.options.getPerspective();
                         if (originalPerspective == Perspective.FIRST_PERSON) {
                             client.options.setPerspective(Perspective.THIRD_PERSON_BACK);
                         }
+                        // 【新】进入模式时，停止玩家的任何移动，避免残留速度影响计算
+                        player.setVelocity(Vec3d.ZERO);
+                        player.velocityModified = true;
+
                     } else {
                         player.sendMessage(Text.of("Unfold Mode Deactivated"), false);
-
                         if (originalPerspective != null) {
                             client.options.setPerspective(originalPerspective);
                             originalPerspective = null;
@@ -67,21 +62,26 @@ public class UnfoldModClient implements ClientModInitializer {
                 }
             }
 
-            // --- 全新的被动位置修正逻辑 ---
-            if (teleportCooldown > 0) {
-                teleportCooldown--;
-            }
+            // --- 被动位置修正逻辑 ---
+            if (teleportCooldown > 0) teleportCooldown--;
 
             if (UnfoldManager.unfolding && teleportCooldown == 0) {
+                // 【新】在传送前，阻止玩家因为重力等原因下落，让他在屏幕上“静止”
+                // 只有WASD的输入速度会影响计算
+                if (!player.getAbilities().flying) {
+                    player.setVelocity(player.getVelocity().x, 0, player.getVelocity().z);
+                    player.velocityModified = true;
+                }
+
                 Vec3d correctedPos = UnfoldTeleportLogic.findCorrectedPosition();
 
                 if (correctedPos != null) {
-                    // 检查计算出的正确位置是否与当前位置足够不同，以避免不必要的传送
-                    // 使用 squaredDistanceTo 比 distanceTo 性能更好
-                    if (player.getPos().squaredDistanceTo(correctedPos) > 0.01) { // 阈值可以调整
+                    if (player.getPos().squaredDistanceTo(correctedPos) > 0.01) {
                         ClientPlayNetworking.send(new TeleportRequestPayload(correctedPos));
-                        // 传送后设置一个短暂的冷却，防止因网络延迟或计算抖动导致反复传送
-                        teleportCooldown = 2; // 2 ticks (0.1秒)
+                        teleportCooldown = 2;
+                        // 【新】传送后，再次清空速度，等待下一次WASD输入
+                        player.setVelocity(Vec3d.ZERO);
+                        player.velocityModified = true;
                     }
                 }
             }
