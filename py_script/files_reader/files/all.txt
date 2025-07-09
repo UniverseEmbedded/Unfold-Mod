@@ -6,3 +6,4 @@ src\main\resources\unfold.mixins.json
 build.gradle
 gradle.properties
 settings.gradle
+README.md

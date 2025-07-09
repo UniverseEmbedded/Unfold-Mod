@@ -4,7 +4,6 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.option.Perspective;
 import net.minecraft.client.util.InputUtil;
@@ -15,24 +14,23 @@ import pama1234.unfold.logic.UnfoldManager;
 import pama1234.unfold.logic.UnfoldTeleportLogic;
 import pama1234.unfold.network.TeleportRequestPayload;
 import pama1234.unfold.util.ViewDirection;
+import net.minecraft.client.network.ClientPlayerEntity;
 
 public class UnfoldModClient implements ClientModInitializer {
 
     private static KeyBinding toggleKey;
-    private static KeyBinding teleportKey;
+    // G键已移除: private static KeyBinding teleportKey;
     private static Perspective originalPerspective;
 
-    private static boolean isTransitioning = false;
-    private static int transitionCooldown = 0;
+    private static int toggleCooldown = 0;
+    private static int teleportCooldown = 0; // 新增一个传送冷却，防止因位置修正抖动导致反复传送
 
     @Override
     public void onInitializeClient() {
         toggleKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "key.unfold.toggle", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_F, "category.unfold"
         ));
-        teleportKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.unfold.teleport", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_G, "category.unfold"
-        ));
+        // teleportKey 的注册已移除
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             ClientPlayerEntity player = client.player;
@@ -40,16 +38,12 @@ public class UnfoldModClient implements ClientModInitializer {
                 return;
             }
 
-            if (transitionCooldown > 0) {
-                transitionCooldown--;
-                if (transitionCooldown == 0) {
-                    isTransitioning = false;
-                }
+            // --- 模式切换逻辑 ---
+            if (toggleCooldown > 0) {
+                toggleCooldown--;
             }
-
-            if (toggleKey.wasPressed() && !isTransitioning) {
-                isTransitioning = true;
-                transitionCooldown = 5; // 0.25秒防抖冷却
+            if (toggleKey.wasPressed() && toggleCooldown == 0) {
+                toggleCooldown = 5; // 0.25秒防抖冷却
 
                 UnfoldManager.unfolding = !UnfoldManager.unfolding;
 
@@ -73,12 +67,22 @@ public class UnfoldModClient implements ClientModInitializer {
                 }
             }
 
-            if (UnfoldManager.unfolding && teleportKey.wasPressed()) {
-                Vec3d target = UnfoldTeleportLogic.findTeleportLocation();
-                if (target != null) {
-                    ClientPlayNetworking.send(new TeleportRequestPayload(target));
-                } else {
-                    player.sendMessage(Text.of("No valid teleport location found!"), false);
+            // --- 全新的被动位置修正逻辑 ---
+            if (teleportCooldown > 0) {
+                teleportCooldown--;
+            }
+
+            if (UnfoldManager.unfolding && teleportCooldown == 0) {
+                Vec3d correctedPos = UnfoldTeleportLogic.findCorrectedPosition();
+
+                if (correctedPos != null) {
+                    // 检查计算出的正确位置是否与当前位置足够不同，以避免不必要的传送
+                    // 使用 squaredDistanceTo 比 distanceTo 性能更好
+                    if (player.getPos().squaredDistanceTo(correctedPos) > 0.01) { // 阈值可以调整
+                        ClientPlayNetworking.send(new TeleportRequestPayload(correctedPos));
+                        // 传送后设置一个短暂的冷却，防止因网络延迟或计算抖动导致反复传送
+                        teleportCooldown = 2; // 2 ticks (0.1秒)
+                    }
                 }
             }
         });
