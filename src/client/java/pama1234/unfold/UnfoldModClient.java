@@ -22,8 +22,6 @@ public class UnfoldModClient implements ClientModInitializer {
 
 	@Override
 	public void onInitializeClient() {
-		PayloadTypeRegistry.playC2S().register(TeleportRequestPayload.ID, TeleportRequestPayload.CODEC);
-
 		toggleKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
 				"key.unfold.toggle", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_F, "category.unfold"
 		));
