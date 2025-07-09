@@ -115,7 +115,13 @@ public class TestRunner {
 
     public static List<String> getTestNames() {
         return Arrays.asList(
-                // 水平展开测试 (FEZ风格)
+                // 诊断测试（用于验证测试系统本身）
+                "diagnostic_simple_pass",
+                "diagnostic_should_fail",
+                "diagnostic_scene_building",
+
+                // 原有的功能测试
+                "horizontal_jump_across_debug",
                 "horizontal_jump_across",
                 "horizontal_walk_through_wall",
                 "horizontal_jump_onto_platform",
@@ -133,6 +139,20 @@ public class TestRunner {
 
     private void buildTestByName(String name) {
         switch (name) {
+            // 诊断测试
+            case "diagnostic_simple_pass":
+                buildDiagnosticSimplePassTest();
+                break;
+            case "diagnostic_should_fail":
+                buildDiagnosticShouldFailTest();
+                break;
+            case "diagnostic_scene_building":
+                buildDiagnosticSceneBuildingTest();
+                break;
+            case "horizontal_jump_across_debug":
+                buildHorizontalJumpAcrossDebugTest();
+                break;
+
             // 水平展开测试
             case "horizontal_jump_across":
                 buildHorizontalJumpAcrossTest();
@@ -167,6 +187,174 @@ public class TestRunner {
                 UnfoldMod.LOGGER.warn("Test case not found: {}", name);
                 report.record(name, false, "Test case not found.");
         }
+    }
+
+
+// ==================== 诊断测试用例 ====================
+
+    /**
+     * 简单的通过测试 - 这个测试应该总是通过
+     */
+    private void buildDiagnosticSimplePassTest() {
+        taskQueue.add(new LogTask("--- Diagnostic: Simple Pass Test ---"));
+
+        // 1. 清理并搭建简单场景
+        BlockPos center = new BlockPos(0, 64, 0);
+        taskQueue.add(new ClearSceneTask(center, 10));
+        taskQueue.add(new WaitTask(15)); // 充分等待
+
+        // 2. 放置金块
+        taskQueue.add(new LogTask("Placing gold block..."));
+        taskQueue.add(new BuildPlatformTask(new BlockPos(0, 64, 0), Blocks.GOLD_BLOCK.getDefaultState(), new Vec3i(1, 1, 1)));
+        taskQueue.add(new WaitTask(15)); // 充分等待
+
+        // 3. 设置玩家位置
+        taskQueue.add(new LogTask("Setting player position..."));
+        taskQueue.add(new SetPlayerPosTask(new Vec3d(0.5, 65.0, 0.5)));
+        taskQueue.add(new WaitTask(5));
+
+        // 4. 调试状态
+        taskQueue.add(new DebugPlayerStateTask("Before Simple Assert"));
+
+        // 5. 断言 - 应该通过
+        taskQueue.add(new LogTask("Performing assertion (should PASS)..."));
+        taskQueue.add(new AssertBlockBelowTask(Blocks.GOLD_BLOCK, "Gold"));
+    }
+
+    /**
+     * 故意失败的测试 - 这个测试应该总是失败
+     */
+    private void buildDiagnosticShouldFailTest() {
+        taskQueue.add(new LogTask("--- Diagnostic: Should Fail Test ---"));
+
+        // 1. 清理并搭建简单场景
+        BlockPos center = new BlockPos(0, 64, 0);
+        taskQueue.add(new ClearSceneTask(center, 10));
+        taskQueue.add(new WaitTask(15));
+
+        // 2. 放置石头块
+        taskQueue.add(new LogTask("Placing stone block..."));
+        taskQueue.add(new BuildPlatformTask(new BlockPos(0, 64, 0), Blocks.STONE.getDefaultState(), new Vec3i(1, 1, 1)));
+        taskQueue.add(new WaitTask(15));
+
+        // 3. 设置玩家位置
+        taskQueue.add(new LogTask("Setting player position..."));
+        taskQueue.add(new SetPlayerPosTask(new Vec3d(0.5, 65.0, 0.5)));
+        taskQueue.add(new WaitTask(5));
+
+        // 4. 调试状态
+        taskQueue.add(new DebugPlayerStateTask("Before Failing Assert"));
+
+        // 5. 断言 - 应该失败（期望金块但实际是石头）
+        taskQueue.add(new LogTask("Performing assertion (should FAIL)..."));
+        taskQueue.add(new AssertBlockBelowTask(Blocks.GOLD_BLOCK, "Gold"));
+    }
+
+    /**
+     * 场景搭建测试 - 验证命令是否正确执行
+     */
+    private void buildDiagnosticSceneBuildingTest() {
+        taskQueue.add(new LogTask("--- Diagnostic: Scene Building Test ---"));
+
+        // 1. 清理
+        BlockPos center = new BlockPos(0, 64, 0);
+        taskQueue.add(new ClearSceneTask(center, 20));
+        taskQueue.add(new WaitTask(20));
+
+        // 2. 逐步搭建并验证每一步
+        taskQueue.add(new LogTask("Building stone platform..."));
+        taskQueue.add(new BuildPlatformTask(new BlockPos(0, 64, 0), Blocks.STONE.getDefaultState(), new Vec3i(3, 1, 3)));
+        taskQueue.add(new WaitTask(15));
+
+        // 验证石头平台
+        taskQueue.add(new SetPlayerPosTask(new Vec3d(0.5, 65.0, 0.5)));
+        taskQueue.add(new WaitTask(3));
+        taskQueue.add(new DebugPlayerStateTask("After Stone Platform"));
+        taskQueue.add(new AssertBlockBelowTask(Blocks.STONE, "Stone"));
+
+        // 3. 添加金块平台
+        taskQueue.add(new LogTask("Building gold platform..."));
+        taskQueue.add(new BuildPlatformTask(new BlockPos(5, 65, 0), Blocks.GOLD_BLOCK.getDefaultState(), new Vec3i(3, 1, 3)));
+        taskQueue.add(new WaitTask(15));
+
+        // 移动到金块平台并验证
+        taskQueue.add(new SetPlayerPosTask(new Vec3d(5.5, 66.0, 0.5)));
+        taskQueue.add(new WaitTask(3));
+        taskQueue.add(new DebugPlayerStateTask("After Gold Platform"));
+        taskQueue.add(new AssertBlockBelowTask(Blocks.GOLD_BLOCK, "Gold"));
+
+        taskQueue.add(new LogTask("Scene building test completed"));
+    }
+
+    /**
+     * 调试版的横向跳跃测试
+     */
+    private void buildHorizontalJumpAcrossDebugTest() {
+        taskQueue.add(new LogTask("--- Horizontal Jump Across Test (DEBUG VERSION) ---"));
+
+        // 1. 场景搭建
+        BlockPos center = new BlockPos(0, 64, 0);
+        taskQueue.add(new ClearSceneTask(center, 30));
+        taskQueue.add(new WaitTask(20)); // 更长的等待时间
+
+        // 调试：检查清理后的状态
+        taskQueue.add(new DebugPlayerStateTask("After Scene Clear"));
+
+        // 起始平台在 X=0
+        taskQueue.add(new LogTask("Building starting platform (stone)..."));
+        taskQueue.add(new BuildPlatformTask(new BlockPos(0, 64, 0), Blocks.STONE.getDefaultState(), new Vec3i(1, 1, 5)));
+        taskQueue.add(new WaitTask(15)); // 等待方块放置
+
+        // 目标平台在 X=4 (横向空3格), Y=65 (高1格)
+        taskQueue.add(new LogTask("Building target platform (gold)..."));
+        taskQueue.add(new BuildPlatformTask(new BlockPos(4, 65, 0), Blocks.GOLD_BLOCK.getDefaultState(), new Vec3i(1, 1, 5)));
+        taskQueue.add(new WaitTask(15)); // 等待方块放置
+
+        // 调试：检查场景搭建后的状态
+        taskQueue.add(new DebugPlayerStateTask("After Scene Build"));
+
+        // 2. 玩家状态设置
+        taskQueue.add(new LogTask("Setting player position on starting platform..."));
+        taskQueue.add(new SetPlayerPosTask(new Vec3d(0.5, 65.0, 0.5)));
+        taskQueue.add(new WaitTask(5)); // 等待位置设置
+
+        // 验证玩家在起始平台
+        taskQueue.add(new DebugPlayerStateTask("After Player Position Set"));
+        taskQueue.add(new AssertBlockBelowTask(Blocks.STONE, "Stone")); // 应该在石头平台上
+
+        // 使用 NEG_X 视角来消除 X 轴的深度
+        taskQueue.add(new LogTask("Entering unfold mode..."));
+        taskQueue.add(new EnterUnfoldModeTask(ViewDirection.NEG_X));
+        taskQueue.add(new WaitTask(5)); // 等待模式切换
+
+        // 调试：检查展开模式激活后的状态
+        taskQueue.add(new DebugPlayerStateTask("After Unfold Mode Activated"));
+
+        // 3. 动作与等待
+        taskQueue.add(new LogTask("Starting movement simulation toward target..."));
+        taskQueue.add(new SimulateMoveTask(new Vec3d(0.2, 0, 0), 5)); // 向+X移动，持续更长时间
+        taskQueue.add(new WaitTask(5));
+
+        // 调试：检查移动后的状态
+        taskQueue.add(new DebugPlayerStateTask("After Movement"));
+
+        taskQueue.add(new LogTask("Starting jump simulation..."));
+        taskQueue.add(new SimulateJumpTask());
+        taskQueue.add(new WaitTask(10)); // 观察跳跃过程
+
+        // 调试：检查跳跃后的状态
+        taskQueue.add(new DebugPlayerStateTask("After Jump"));
+
+        taskQueue.add(new WaitTask(30)); // 等待瞬移和落地
+
+        // 调试：检查最终状态
+        taskQueue.add(new DebugPlayerStateTask("Final State Before Assert"));
+
+        // 4. 最终结果断言
+        taskQueue.add(new LogTask("Performing final assertion for gold block..."));
+        taskQueue.add(new AssertBlockBelowTask(Blocks.GOLD_BLOCK, "Gold"));
+
+        taskQueue.add(new LogTask("Debug test completed"));
     }
 
     // ==============================================
