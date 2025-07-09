@@ -1,0 +1,11 @@
+{
+	"required": true,
+	"package": "pama1234.unfold.mixin.client",
+	"compatibilityLevel": "JAVA_21",
+	"client": [
+		"GameRendererMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

@@ -1,0 +1,41 @@
+{
+	"schemaVersion": 1,
+	"id": "unfold",
+	"version": "${version}",
+	"name": "Unfold Mod",
+	"description": "This is an example description! Tell everyone what your mod is about!",
+	"authors": [
+		"Me!"
+	],
+	"contact": {
+		"homepage": "https://fabricmc.net/",
+		"sources": "https://github.com/FabricMC/fabric-example-mod"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/unfold/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"pama1234.unfold.UnfoldMod"
+		],
+		"client": [
+			"pama1234.unfold.UnfoldModClient"
+		]
+	},
+	"mixins": [
+		"unfold.mixins.json",
+		{
+			"config": "unfold.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.16.14",
+		"minecraft": "~1.21.5",
+		"java": ">=21",
+		"fabric-api": "*"
+	},
+	"suggests": {
+		"another-mod": "*"
+	}
+}
