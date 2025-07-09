@@ -1,6 +1,7 @@
 package pama1234.unfold.util;
 
 import net.minecraft.entity.player.PlayerEntity;
+import pama1234.unfold.UnfoldMod;
 
 public enum ViewDirection {
     // 8个斜侧方视角 (纪念碑谷风格)
@@ -41,35 +42,44 @@ public enum ViewDirection {
     }
 
     public static ViewDirection getClosest(PlayerEntity player) {
+        UnfoldMod.LOGGER.info("[GET-CLOSEST] Called with player entity.");
         return getClosest(player.getYaw(), player.getPitch());
     }
 
     public static ViewDirection getClosest(float yaw, float pitch) {
-        // 【关键新增】健壮性检查，防止输入无效值
+        UnfoldMod.LOGGER.info(String.format("[GET-CLOSEST] Starting calculation for Y/P: %.2f / %.2f", yaw, pitch));
+
         if (Float.isNaN(yaw) || Float.isNaN(pitch) || Float.isInfinite(yaw) || Float.isInfinite(pitch)) {
-            System.err.println("!!! WARNING: Invalid yaw/pitch provided to getClosest. Falling back to default.");
-            return values()[0]; // 如果输入无效，直接返回一个默认值，避免后续计算崩溃
+            UnfoldMod.LOGGER.severe("[GET-CLOSEST] !!! FATAL: Invalid yaw/pitch provided. Input was NaN or Infinite. Falling back to default.");
+            return values()[0];
         }
 
         ViewDirection closest = values()[0];
         float minDistance = Float.MAX_VALUE;
 
         for (ViewDirection direction : values()) {
+            UnfoldMod.LOGGER.info("[GET-CLOSEST-LOOP] --- Checking direction: " + direction.name());
             float yawDiff = Math.abs(normalizeAngle(yaw - direction.yaw));
             float pitchDiff = Math.abs(pitch - direction.pitch);
 
-            // 【关键新增】再次检查计算结果
+            UnfoldMod.LOGGER.info(String.format("[GET-CLOSEST-LOOP] YawDiff: %.2f, PitchDiff: %.2f", yawDiff, pitchDiff));
+
             if (Float.isNaN(yawDiff) || Float.isNaN(pitchDiff)) {
-                continue; // 如果计算出错，跳过这个方向
+                UnfoldMod.LOGGER.warning("[GET-CLOSEST-LOOP] !!! Calculation resulted in NaN. Skipping direction: " + direction.name());
+                continue;
             }
 
             float distance = yawDiff + pitchDiff;
+            UnfoldMod.LOGGER.info(String.format("[GET-CLOSEST-LOOP] Total distance: %.2f. Current minDistance: %.2f", distance, minDistance));
 
             if (distance < minDistance) {
                 minDistance = distance;
                 closest = direction;
+                UnfoldMod.LOGGER.info("[GET-CLOSEST-LOOP] >>> New closest direction found: " + closest.name());
             }
         }
+
+        UnfoldMod.LOGGER.info("[GET-CLOSEST] Final closest direction: " + closest.name());
         return closest;
     }
 

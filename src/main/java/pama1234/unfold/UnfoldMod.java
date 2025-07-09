@@ -7,7 +7,11 @@ import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.math.Vec3d;
 import pama1234.unfold.network.TeleportRequestPayload;
 
+import java.util.logging.Logger;
+
 public class UnfoldMod implements ModInitializer {
+
+    public static final Logger LOGGER = Logger.getLogger("Unfold-Debug-main");
 
     @Override
     public void onInitialize() {

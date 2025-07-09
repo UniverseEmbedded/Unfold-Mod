@@ -15,6 +15,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.ModifyArg;
+import pama1234.unfold.UnfoldModClient;
 import pama1234.unfold.logic.UnfoldConfig;
 import pama1234.unfold.logic.UnfoldManager;
 
@@ -25,19 +26,14 @@ public abstract class GameRendererMixin {
     @Final
     private MinecraftClient client;
 
-    // --- 抽取出一个独立的、可复用的矩阵创建方法 ---
     private Matrix4f createUnfoldOrthoMatrix() {
-        // 使用 UnfoldConfig 中的参数
         float scale = UnfoldConfig.SCALE;
         float aspectRatio = (float) this.client.getWindow().getFramebufferWidth() / (float) this.client.getWindow().getFramebufferHeight();
         float width = scale * aspectRatio;
         float height = scale;
-
-        // 【关键】使用正确的近/远裁剪面值
         return new Matrix4f().setOrtho(-width, width, -height, height, UnfoldConfig.MIN_DISTANCE, UnfoldConfig.MAX_DISTANCE);
     }
 
-    // --- 修改点1: 最终渲染矩阵 ---
     @ModifyArg(
             method = "renderWorld",
             at = @At(value = "INVOKE", target = "Lnet/minecraft/client/render/WorldRenderer;render(Lnet/minecraft/client/util/ObjectAllocator;Lnet/minecraft/client/render/RenderTickCounter;ZLnet/minecraft/client/render/Camera;Lnet/minecraft/client/render/GameRenderer;Lorg/joml/Matrix4f;Lorg/joml/Matrix4f;)V"),
@@ -52,7 +48,6 @@ public abstract class GameRendererMixin {
         return projectionMatrix;
     }
 
-    // --- 修改点2: 视锥体剔除矩阵 ---
     @ModifyArg(
             method = "renderWorld",
             at = @At(
@@ -63,7 +58,6 @@ public abstract class GameRendererMixin {
     )
     private Matrix4f modifyProjectionMatrixForFrustum(Matrix4f projMat) {
         if (UnfoldManager.unfolding) {
-            // 【重要】确保这里返回和上面完全一样的矩阵
             return createUnfoldOrthoMatrix();
         }
         return projMat;
@@ -77,28 +71,33 @@ public abstract class GameRendererMixin {
                     target = "Lorg/joml/Quaternionf;conjugate(Lorg/joml/Quaternionf;)Lorg/joml/Quaternionf;"
             )
     )
+    // 这里会报错 警告: Unable to locate method mapping for @At(INVOKE.<target>) 'Lorg/joml/Quaternionf;conjugate(Lorg/joml/Quaternionf;)Lorg/joml/Quaternionf;'
+    // 但是实际上没有问题
     private Quaternionf modifyCameraRotation(Quaternionf original, @Local(argsOnly = true) RenderTickCounter tickCounter) {
         if (UnfoldManager.unfolding && this.client.player != null) {
-            // 我们不再需要插值了，因为是瞬间切换
+            UnfoldModClient.LOGGER.info("[RENDER-ROT] Unfold mode is ON. Overriding camera rotation.");
+
             float targetYaw = UnfoldManager.currentDirection.yaw;
             float targetPitch = UnfoldManager.currentDirection.pitch;
 
-            // 【关键修改】严格按照 OrthoCamera 的方式构建四元数
-            // 1. 使用 rotationXYZ 方法
-            // 2. 第一个参数是 Pitch
-            // 3. 第二个参数是 Yaw，并且需要调整180度
-            // 4. 第三个参数是 Roll，为 0
+            UnfoldModClient.LOGGER.info(String.format("[RENDER-ROT] Target Y/P: %.2f / %.2f", targetYaw, targetPitch));
 
-            // 注意：我们直接使用 targetPitch，不需要取反。OrthoCamera 也没有取反。
             float pitchRad = targetPitch * MathHelper.RADIANS_PER_DEGREE;
-
-            // OrthoCamera 使用 yaw_in_rad - PI。我们使用 yaw_in_deg + 180 再转弧度，效果一样。
             float yawRad = (targetYaw + 180.0f) * MathHelper.RADIANS_PER_DEGREE;
 
-            // 这里不再使用 `new Quaternionf()...` 而是直接修改 `original` 对象
-            // 这也是 OrthoCamera 的做法，更加高效，避免了不必要的对象创建。
-            return original.rotationXYZ(pitchRad, yawRad, 0.0f);
+            UnfoldModClient.LOGGER.info(String.format("[RENDER-ROT] Calculated Rads P/Y: %.4f / %.4f", pitchRad, yawRad));
+            UnfoldModClient.LOGGER.info("[RENDER-ROT] Original quaternion (being ignored): " + original);
+
+            // 【【【 决定性修改 】】】
+            // 不再修改传入的 original 对象。
+            // 总是创建一个全新的、干净的四元数实例。
+            // 这彻底切断了与上一帧状态的任何潜在反馈循环。
+            Quaternionf newRotation = new Quaternionf().rotationXYZ(pitchRad, yawRad, 0.0f);
+
+            UnfoldModClient.LOGGER.info("[RENDER-ROT] Returning new, clean quaternion: " + newRotation);
+            return newRotation;
         }
+
         return original;
     }
 }
