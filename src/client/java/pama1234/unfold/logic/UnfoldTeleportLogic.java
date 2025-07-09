@@ -11,6 +11,7 @@ import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.RaycastContext;
 import pama1234.unfold.UnfoldMod;
+import pama1234.unfold.event.PlayerTeleportCallback;
 import pama1234.unfold.util.ViewDirection;
 
 import java.util.ArrayList;
@@ -133,9 +134,16 @@ public class UnfoldTeleportLogic {
     // --- 辅助方法和几何定义 ---
 
     private static void teleportPlayer(ClientPlayerEntity player, Vec3d targetPos) {
+        Vec3d fromPos = player.getPos(); // 获取瞬移前的位置
+
         player.setPos(targetPos.x, targetPos.y, targetPos.z);
-        player.setVelocity(player.getVelocity().x, 0, player.getVelocity().z);
+        player.setVelocity(player.getVelocity().x, 0, player.getVelocity().z); // 清除垂直速度
         UnfoldMod.LOGGER.info("Teleported to {}", targetPos);
+
+        // 【新增】触发瞬移事件
+        PlayerTeleportCallback.EVENT.invoker().onTeleport(UnfoldManager.currentMode, fromPos, targetPos);
+
+        // 这里可以添加一个短暂的冷却，防止连续触发
     }
 
     private static boolean isSafePlatform(ClientWorld world, BlockPos pos, Direction surface) {

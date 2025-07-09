@@ -10,9 +10,11 @@ import net.minecraft.client.option.Perspective;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.util.math.Vec3d;
 import org.lwjgl.glfw.GLFW;
+import pama1234.unfold.command.TestCommand;
 import pama1234.unfold.logic.UnfoldManager;
 import pama1234.unfold.logic.UnfoldMode;
 import pama1234.unfold.logic.UnfoldTeleportLogic;
+import pama1234.unfold.test.TestRunner;
 import pama1234.unfold.util.ViewDirection;
 
 public class UnfoldModClient implements ClientModInitializer {
@@ -36,6 +38,9 @@ public class UnfoldModClient implements ClientModInitializer {
 
 
         ClientTickEvents.END_CLIENT_TICK.register(tickClient -> {
+            // 【新增】驱动测试器
+            TestRunner.INSTANCE.tick();
+
             ClientPlayerEntity player = tickClient.player;
             if (player == null) {
                 return;
@@ -57,6 +62,8 @@ public class UnfoldModClient implements ClientModInitializer {
                 handlePlayerMovement(tickClient, player);
             }
         });
+
+        TestCommand.register();
     }
 
     private void handleModeToggle(MinecraftClient client, ClientPlayerEntity player) {
