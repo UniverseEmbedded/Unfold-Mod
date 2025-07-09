@@ -1,6 +1,9 @@
 package pama1234.unfold.mixin.client;
 
+import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import com.llamalad7.mixinextras.sugar.Local;
+import com.mojang.blaze3d.systems.ProjectionType;
+import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.render.GameRenderer;
@@ -13,19 +16,18 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.ModifyArg;
-import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
-import com.mojang.blaze3d.systems.ProjectionType;
-import com.mojang.blaze3d.systems.RenderSystem;
 import pama1234.unfold.logic.UnfoldManager;
 import pama1234.unfold.util.ViewDirection;
 
 @Mixin(GameRenderer.class)
 public abstract class GameRendererMixin {
 
-    @Shadow @Final private MinecraftClient client;
+    @Shadow
+    @Final
+    private MinecraftClient client;
 
     private Matrix4f createOrthoMatrix(float scale) {
-        float width = scale * this.client.getWindow().getFramebufferWidth() / (float)this.client.getWindow().getFramebufferHeight();
+        float width = scale * this.client.getWindow().getFramebufferWidth() / (float) this.client.getWindow().getFramebufferHeight();
         float height = scale;
         return new Matrix4f().setOrtho(-width, width, -height, height, 0.05F, 1000.0F);
     }

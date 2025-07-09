@@ -5,7 +5,7 @@ import net.minecraft.client.render.Camera;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.ModifyVariable;
-import pama1234.unfold.logic.UnfoldManager; // <-- 导入 UnfoldManager
+import pama1234.unfold.logic.UnfoldManager;
 
 @Mixin(Camera.class)
 public abstract class CameraMixin {

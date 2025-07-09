@@ -1,7 +1,6 @@
 package pama1234.unfold.util;
 
 import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.math.MathHelper;
 
 public enum ViewDirection {
     // 8个斜侧方视角 (纪念碑谷风格)
