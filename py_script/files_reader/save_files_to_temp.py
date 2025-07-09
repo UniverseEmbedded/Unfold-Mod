@@ -6,6 +6,7 @@ save_files_to_temp.py
 2. txt文件中使用!开头的行作为排除规则（类似gitignore）
 3. 文件夹递归读取和gitignore式排除功能
 4. .env配置项目根目录和是否读取gitignore
+5. 输出每个文件的字符数量
 """
 import fnmatch
 import os
@@ -307,7 +308,24 @@ class FileProcessor:
 
     def aggregate_to_file(self, files: List[Path], out_path: Path, original_paths: List[str],
                           exclude_rules: List[str]) -> None:
-        """将所有文件内容聚合到输出文件"""
+        """将所有文件内容聚合到输出文件，并包含字符数统计。"""
+
+        # 1. 预处理文件以获取内容和字符数
+        file_data = []
+        total_chars = 0
+        for file_path in files:
+            try:
+                content = file_path.read_text(encoding="utf-8", errors="replace")
+                char_count = len(content)
+                file_data.append({'path': file_path, 'content': content, 'chars': char_count})
+                total_chars += char_count
+            except Exception as exc:
+                error_message = f"[ERROR] 读取失败: {exc}"
+                print(f"[ERROR] 无法读取 {file_path}: {exc}", file=sys.stderr)
+                # 仍然添加到列表中，以便在输出文件中报告错误
+                file_data.append({'path': file_path, 'content': error_message, 'chars': 0})
+
+        # 2. 写入输出文件
         with out_path.open("w", encoding="utf-8") as fout:
             # 写入文件头信息
             fout.write(f"{SEPARATOR}\n")
@@ -315,7 +333,8 @@ class FileProcessor:
             fout.write(f"{SEPARATOR}\n")
             fout.write(f"聚合时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             fout.write(f"项目根目录: {self.project_root}\n")
-            fout.write(f"总计处理文件数: {len(files)}\n")
+            fout.write(f"总计处理文件数: {len(file_data)}\n")
+            fout.write(f"总计字符数: {total_chars}\n")
             fout.write(f"原始输入路径数: {len(original_paths)}\n")
             if exclude_rules:
                 fout.write(f"文件排除规则数: {len(exclude_rules)}\n")
@@ -336,32 +355,31 @@ class FileProcessor:
                     fout.write(f"{i:3d}. !{rule}\n")
                 fout.write("\n")
 
-            # 写入实际处理的文件列表
-            fout.write("实际处理的文件列表:\n")
-            for i, file_path in enumerate(files, 1):
-                fout.write(f"{i:3d}. {file_path}\n")
+            # 写入实际处理的文件列表 (并附上字符数)
+            fout.write("实际处理的文件列表 (包含字符数):\n")
+            for i, data in enumerate(file_data, 1):
+                fout.write(f"{i:3d}. {data['path']} ({data['chars']} 个字符)\n")
 
             fout.write(f"\n{SEPARATOR}\n")
             fout.write("文件内容开始\n")
             fout.write(f"{SEPARATOR}\n\n")
 
             # 写入各个文件的内容
-            for file_path in files:
-                try:
-                    text = file_path.read_text(encoding="utf-8", errors="replace")
-                except Exception as exc:
-                    print(f"[ERROR] 无法读取 {file_path}: {exc}", file=sys.stderr)
-                    fout.write(f"{SEPARATOR}\n{file_path}\n{SEPARATOR}\n")
-                    fout.write(f"[ERROR] 读取失败: {exc}\n\n")
-                    continue
+            for data in file_data:
+                path = data['path']
+                content = data['content']
+                char_count = data['chars']
 
-                # 写入分隔线、路径、分隔线
-                fout.write(f"{SEPARATOR}\n{file_path}\n{SEPARATOR}\n")
-                fout.write(text)
+                # 写入分隔线、路径、字符数、分隔线
+                fout.write(f"{SEPARATOR}\n")
+                fout.write(f"{path} ({char_count} 个字符)\n")
+                fout.write(f"{SEPARATOR}\n")
+                fout.write(content)
 
-                # 保证每个文件后至少一个换行
-                if not text.endswith("\n"):
+                # 保证文件内容和下一个分隔符之间有空行
+                if not content.endswith("\n"):
                     fout.write("\n")
+                fout.write("\n")
 
 
 def main():

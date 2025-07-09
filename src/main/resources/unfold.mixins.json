@@ -5,6 +5,7 @@
 	"mixins": [
 		"ExampleMixin"
 	],
+	"accessWidener": "unfold.accesswidener",
 	"injectors": {
 		"defaultRequire": 1
 	},
