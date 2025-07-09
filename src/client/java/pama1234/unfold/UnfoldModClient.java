@@ -4,6 +4,7 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
@@ -21,8 +22,10 @@ public class UnfoldModClient implements ClientModInitializer {
 
 	@Override
 	public void onInitializeClient() {
+		PayloadTypeRegistry.playC2S().register(TeleportRequestPayload.ID, TeleportRequestPayload.CODEC);
+
 		toggleKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-				"key.unfold.toggle", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_V, "category.unfold"
+				"key.unfold.toggle", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_F, "category.unfold"
 		));
 		teleportKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
 				"key.unfold.teleport", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_G, "category.unfold"
@@ -35,7 +38,7 @@ public class UnfoldModClient implements ClientModInitializer {
 				if (client.player != null) {
 					if (UnfoldManager.unfolding) {
 						UnfoldManager.currentDirection = ViewDirection.getClosest(client.player);
-						UnfoldManager.transitionStartTick = System.currentTimeMillis() / 50;
+						// 移除了这一行：UnfoldManager.transitionStartTick = System.currentTimeMillis() / 50;
 						client.player.sendMessage(Text.of("Unfold Mode Activated: " + UnfoldManager.currentDirection.name()), false);
 					} else {
 						client.player.sendMessage(Text.of("Unfold Mode Deactivated"), false);

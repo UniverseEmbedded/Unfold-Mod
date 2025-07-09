@@ -55,20 +55,21 @@ public abstract class GameRendererMixin {
     private Quaternionf modifyCameraRotation(Quaternionf original, @Local(argsOnly = true) RenderTickCounter tickCounter) {
         if (UnfoldManager.unfolding && this.client.player != null) {
             ClientPlayerEntity player = this.client.player;
-            // 修正 #1: 使用 getTickProgress(false) 替代 getTickDelta()
-            float progress = UnfoldManager.getTransitionProgress(tickCounter.getTickProgress(false));
+            // 直接将 progress 设为 1.0f，表示瞬间完成过渡
+            float progress = 1.0f;
 
             float targetYaw = UnfoldManager.currentDirection.yaw;
             float targetPitch = UnfoldManager.currentDirection.pitch;
 
-            // 修正 #2 & #3: 使用 lastYaw 和 lastPitch 字段替代 getPrevYaw() 和 getPrevPitch() 方法
-            float smoothedYaw = ViewDirection.lerpAngle(player.lastYaw, targetYaw, progress);
-            float smoothedPitch = MathHelper.lerp(progress, player.lastPitch, targetPitch);
+            // 使用 player.getYaw() 和 player.getPitch() 获取当前玩家实际朝向，以便从当前朝向直接跳到目标朝向
+            // 注意：这里不再使用 player.lastYaw/lastPitch，因为不再有平滑过渡，每次都从当前玩家视角直接跳转
+            float snappedYaw = ViewDirection.lerpAngle(player.getYaw(), targetYaw, progress);
+            float snappedPitch = MathHelper.lerp(progress, player.getPitch(), targetPitch);
 
             // 直接设置最终旋转，忽略玩家输入
             return new Quaternionf().rotationYXZ(
-                    (smoothedYaw + 180.0f) * MathHelper.RADIANS_PER_DEGREE,
-                    -smoothedPitch * MathHelper.RADIANS_PER_DEGREE,
+                    (snappedYaw + 180.0f) * MathHelper.RADIANS_PER_DEGREE,
+                    -snappedPitch * MathHelper.RADIANS_PER_DEGREE,
                     0.0F
             );
         }
