@@ -22,7 +22,7 @@ public class UnfoldModClient implements ClientModInitializer {
 	@Override
 	public void onInitializeClient() {
 		toggleKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-				"key.unfold.toggle", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_F, "category.unfold"
+				"key.unfold.toggle", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_V, "category.unfold"
 		));
 		teleportKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
 				"key.unfold.teleport", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_G, "category.unfold"

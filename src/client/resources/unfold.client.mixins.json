@@ -3,6 +3,7 @@
 	"package": "pama1234.unfold.mixin.client",
 	"compatibilityLevel": "JAVA_21",
 	"client": [
+		"CameraMixin",
 		"GameRendererMixin"
 	],
 	"injectors": {
