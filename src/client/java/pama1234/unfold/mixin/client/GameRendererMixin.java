@@ -15,7 +15,6 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.ModifyArg;
-import pama1234.unfold.UnfoldModClient;
 import pama1234.unfold.logic.UnfoldConfig;
 import pama1234.unfold.logic.UnfoldManager;
 
@@ -48,21 +47,7 @@ public abstract class GameRendererMixin {
         return projectionMatrix;
     }
 
-    @ModifyArg(
-            method = "renderWorld",
-            at = @At(
-                    value = "INVOKE",
-                    target = "Lnet/minecraft/client/render/WorldRenderer;setupFrustum(Lnet/minecraft/util/math/Vec3d;Lorg/joml/Matrix4f;Lorg/joml/Matrix4f;)V"
-            ),
-            index = 2
-    )
-    private Matrix4f modifyProjectionMatrixForFrustum(Matrix4f projMat) {
-        if (UnfoldManager.unfolding) {
-            return createUnfoldOrthoMatrix();
-        }
-        return projMat;
-    }
-
+    // 不再需要修改 Frustum 的矩阵，因为我们在 WorldRendererMixin 中直接跳过了 setupTerrain
 
     @ModifyExpressionValue(
             method = "renderWorld",
@@ -71,33 +56,14 @@ public abstract class GameRendererMixin {
                     target = "Lorg/joml/Quaternionf;conjugate(Lorg/joml/Quaternionf;)Lorg/joml/Quaternionf;"
             )
     )
-    // 这里会报错 警告: Unable to locate method mapping for @At(INVOKE.<target>) 'Lorg/joml/Quaternionf;conjugate(Lorg/joml/Quaternionf;)Lorg/joml/Quaternionf;'
-    // 但是实际上没有问题
     private Quaternionf modifyCameraRotation(Quaternionf original, @Local(argsOnly = true) RenderTickCounter tickCounter) {
         if (UnfoldManager.unfolding && this.client.player != null) {
-            UnfoldModClient.LOGGER.info("[RENDER-ROT] Unfold mode is ON. Overriding camera rotation.");
-
             float targetYaw = UnfoldManager.currentDirection.yaw;
             float targetPitch = UnfoldManager.currentDirection.pitch;
-
-            UnfoldModClient.LOGGER.info(String.format("[RENDER-ROT] Target Y/P: %.2f / %.2f", targetYaw, targetPitch));
-
             float pitchRad = targetPitch * MathHelper.RADIANS_PER_DEGREE;
             float yawRad = (targetYaw + 180.0f) * MathHelper.RADIANS_PER_DEGREE;
-
-            UnfoldModClient.LOGGER.info(String.format("[RENDER-ROT] Calculated Rads P/Y: %.4f / %.4f", pitchRad, yawRad));
-            UnfoldModClient.LOGGER.info("[RENDER-ROT] Original quaternion (being ignored): " + original);
-
-            // 【【【 决定性修改 】】】
-            // 不再修改传入的 original 对象。
-            // 总是创建一个全新的、干净的四元数实例。
-            // 这彻底切断了与上一帧状态的任何潜在反馈循环。
-            Quaternionf newRotation = new Quaternionf().rotationXYZ(pitchRad, yawRad, 0.0f);
-
-            UnfoldModClient.LOGGER.info("[RENDER-ROT] Returning new, clean quaternion: " + newRotation);
-            return newRotation;
+            return new Quaternionf().rotationXYZ(pitchRad, yawRad, 0.0f);
         }
-
         return original;
     }
 }
