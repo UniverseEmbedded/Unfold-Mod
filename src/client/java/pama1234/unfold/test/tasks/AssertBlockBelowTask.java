@@ -2,7 +2,6 @@ package pama1234.unfold.test.tasks;
 
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.util.math.BlockPos;
 import pama1234.unfold.test.TestRunner;
@@ -12,7 +11,6 @@ import pama1234.unfold.UnfoldMod;
 public class AssertBlockBelowTask implements TestTask {
     private final Block expectedBlock;
     private final String blockName;
-    private boolean hasLogged = false;
 
     public AssertBlockBelowTask(Block expectedBlock, String blockName) {
         this.expectedBlock = expectedBlock;
@@ -23,56 +21,45 @@ public class AssertBlockBelowTask implements TestTask {
     public boolean run(TestRunner runner, ClientPlayerEntity player) {
         // 获取玩家当前位置
         BlockPos playerPos = player.getBlockPos();
-
-        // 检测玩家脚底的方块（玩家位置下方一格）
         BlockPos belowPos = playerPos.down();
         BlockState belowState = player.getWorld().getBlockState(belowPos);
-        Block belowBlock = belowState.getBlock();
+        Block actualBlock = belowState.getBlock();
 
-        // 详细的调试信息
-        if (!hasLogged) {
-            UnfoldMod.LOGGER.info("=== ASSERT BLOCK BELOW DEBUG ===");
-            UnfoldMod.LOGGER.info("Player position: {}", playerPos);
-            UnfoldMod.LOGGER.info("Position below: {}", belowPos);
-            UnfoldMod.LOGGER.info("Expected block: {} ({})", expectedBlock.getTranslationKey(), blockName);
-            UnfoldMod.LOGGER.info("Actual block: {}", belowBlock.getTranslationKey());
-            UnfoldMod.LOGGER.info("Blocks equal: {}", belowBlock == expectedBlock);
-            UnfoldMod.LOGGER.info("Is air: {}", belowState.isAir());
-            UnfoldMod.LOGGER.info("Player velocity: {}", player.getVelocity());
-            UnfoldMod.LOGGER.info("Player on ground: {}", player.isOnGround());
-            UnfoldMod.LOGGER.info("================================");
-            hasLogged = true;
-        }
+        // 调试信息
+        UnfoldMod.LOGGER.info("=== ASSERT BLOCK BELOW ===");
+        UnfoldMod.LOGGER.info("Player at: {}", playerPos);
+        UnfoldMod.LOGGER.info("Checking: {}", belowPos);
+        UnfoldMod.LOGGER.info("Expected: {} ({})", expectedBlock.getTranslationKey(), blockName);
+        UnfoldMod.LOGGER.info("Actual: {}", actualBlock.getTranslationKey());
+        UnfoldMod.LOGGER.info("=========================");
 
-        // 如果是空气方块，说明场景可能还没有搭建完成
+        // 检查空气
         if (belowState.isAir()) {
-            throw new AssertionError(String.format(
-                    "Player is standing on AIR at position %s. Expected %s block. Scene may not be built yet.",
-                    belowPos, blockName
-            ));
+            String error = String.format("Player standing on AIR at %s, expected %s", belowPos, blockName);
+            UnfoldMod.LOGGER.error("ASSERTION FAILED: {}", error);
+            throw new AssertionError(error);
         }
 
-        if (belowBlock != expectedBlock) {
-            throw new AssertionError(String.format(
-                    "Player should be standing on %s block, but found %s at position %s",
-                    blockName,
-                    belowBlock.getTranslationKey(),
-                    belowPos
-            ));
+        // 检查方块类型
+        if (actualBlock != expectedBlock) {
+            String error = String.format("Expected %s but found %s at %s",
+                    blockName, actualBlock.getTranslationKey(), belowPos);
+            UnfoldMod.LOGGER.error("ASSERTION FAILED: {}", error);
+            throw new AssertionError(error);
         }
 
-        UnfoldMod.LOGGER.info("✓ Assert passed: Player is standing on {} block", blockName);
+        // 成功
+        UnfoldMod.LOGGER.info("✓ ASSERTION PASSED: Player standing on {}", blockName);
         return true;
     }
 
     @Override
     public void onStart(TestRunner runner, ClientPlayerEntity player) {
-        hasLogged = false;
-        UnfoldMod.LOGGER.info("Starting block assertion for: {}", blockName);
+        UnfoldMod.LOGGER.info("Starting assertion: Player should be on {}", blockName);
     }
 
     @Override
     public String getDescription() {
-        return "Assert player is standing on " + blockName + " block";
+        return "Assert player on " + blockName;
     }
 }

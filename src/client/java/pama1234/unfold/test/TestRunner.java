@@ -115,6 +115,9 @@ public class TestRunner {
 
     public static List<String> getTestNames() {
         return Arrays.asList(
+                // 【最优先】断言系统验证
+                "verify_assertion_system",
+
                 // 诊断测试（用于验证测试系统本身）
                 "diagnostic_simple_pass",
                 "diagnostic_should_fail",
@@ -139,6 +142,11 @@ public class TestRunner {
 
     private void buildTestByName(String name) {
         switch (name) {
+
+            case "verify_assertion_system":
+                buildAssertionVerificationTest();
+                break;
+
             // 诊断测试
             case "diagnostic_simple_pass":
                 buildDiagnosticSimplePassTest();
@@ -189,8 +197,43 @@ public class TestRunner {
         }
     }
 
+    /**
+     * 【关键测试】验证断言系统本身是否正常工作
+     * 这个测试必须首先运行，确保后续测试的可靠性
+     */
+    private void buildAssertionVerificationTest() {
+        taskQueue.add(new LogTask("=== VERIFYING ASSERTION SYSTEM ==="));
 
-// ==================== 诊断测试用例 ====================
+        // 清理场景
+        BlockPos center = new BlockPos(0, 64, 0);
+        taskQueue.add(new ClearSceneTask(center, 10));
+        taskQueue.add(new WaitTask(20)); // 充分等待
+
+        // 放置石头方块
+        taskQueue.add(new LogTask("Placing STONE block for verification..."));
+        taskQueue.add(new BuildPlatformTask(new BlockPos(0, 64, 0), Blocks.STONE.getDefaultState(), new Vec3i(1, 1, 1)));
+        taskQueue.add(new WaitTask(20)); // 充分等待
+
+        // 设置玩家位置
+        taskQueue.add(new LogTask("Placing player on STONE block..."));
+        taskQueue.add(new SetPlayerPosTask(new Vec3d(0.5, 65.0, 0.5)));
+        taskQueue.add(new WaitTask(10));
+
+        // 【测试1】这个断言应该通过
+        taskQueue.add(new LogTask("TEST 1: Asserting STONE (should PASS)"));
+        taskQueue.add(new AssertBlockBelowTask(Blocks.STONE, "Stone"));
+        taskQueue.add(new LogTask("✓ TEST 1 PASSED"));
+
+        // 【测试2】这个断言应该失败，测试将在此停止
+        taskQueue.add(new LogTask("TEST 2: Asserting GOLD on STONE (should FAIL)"));
+        taskQueue.add(new AssertBlockBelowTask(Blocks.GOLD_BLOCK, "Gold"));
+
+        // 如果执行到这里，说明断言系统有严重问题
+        taskQueue.add(new LogTask("🚨 CRITICAL ERROR: TEST 2 SHOULD HAVE FAILED!"));
+        taskQueue.add(new LogTask("🚨 THE ASSERTION SYSTEM IS BROKEN!"));
+    }
+
+    // ==================== 诊断测试用例 ====================
 
     /**
      * 简单的通过测试 - 这个测试应该总是通过
