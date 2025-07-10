@@ -4,29 +4,33 @@ import net.minecraft.entity.player.PlayerEntity;
 
 public enum ViewDirection {
     // 8个斜侧方视角 (纪念碑谷风格)
-    ISO_POS_X_POS_Y(45.0f, -35.26f),
-    ISO_POS_X_NEG_Y(135.0f, -35.26f),
-    ISO_NEG_X_POS_Y(-45.0f, -35.26f),
-    ISO_NEG_X_NEG_Y(-135.0f, -35.26f),
-    ISO_POS_X_POS_Y_2(45.0f, 35.26f),
-    ISO_POS_X_NEG_Y_2(135.0f, 35.26f),
-    ISO_NEG_X_POS_Y_2(-45.0f, 35.26f),
-    ISO_NEG_X_NEG_Y_2(-135.0f, 35.26f),
+    ISO_POS_X_POS_Y(45.0f, -35.26f, "东北俯视"),
+    ISO_POS_X_NEG_Y(135.0f, -35.26f, "东南俯视"),
+    ISO_NEG_X_POS_Y(-45.0f, -35.26f, "西北俯视"),
+    ISO_NEG_X_NEG_Y(-135.0f, -35.26f, "西南俯视"),
+
+    // 仰视的斜角，暂时用2区分
+    ISO_POS_X_POS_Y_2(45.0f, 35.26f, "东北仰视"),
+    ISO_POS_X_NEG_Y_2(135.0f, 35.26f, "东南仰视"),
+    ISO_NEG_X_POS_Y_2(-45.0f, 35.26f, "西北仰视"),
+    ISO_NEG_X_NEG_Y_2(-135.0f, 35.26f, "西南仰视"),
 
     // 6个水平/垂直视角 (FEZ风格)
-    POS_X(90.0f, 0.0f),
-    NEG_X(-90.0f, 0.0f),
-    POS_Z(0.0f, 0.0f),
-    NEG_Z(180.0f, 0.0f),
-    POS_Y(0.0f, -90.0f), // 俯视
-    NEG_Y(0.0f, 90.0f);  // 仰视
+    POS_X(90.0f, 0.0f, "东"),
+    NEG_X(-90.0f, 0.0f, "西"),
+    POS_Z(0.0f, 0.0f, "南"),
+    NEG_Z(180.0f, 0.0f, "北"),
+    POS_Y(0.0f, -90.0f, "正上方俯视"),
+    NEG_Y(0.0f, 90.0f, "正下方仰视");
 
     public final float yaw;
     public final float pitch;
+    public final String chineseName; // 【新增】中文名称字段
 
-    ViewDirection(float yaw, float pitch) {
+    ViewDirection(float yaw, float pitch, String chineseName) {
         this.yaw = yaw;
         this.pitch = pitch;
+        this.chineseName = chineseName; // 【新增】构造函数赋值
     }
 
     private static float normalizeAngle(float angle) {

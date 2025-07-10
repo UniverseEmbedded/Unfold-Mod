@@ -207,13 +207,64 @@ public class UnfoldTeleportLogic {
             }
         }
 
+
         // 2. 实现统一的单辅助线逻辑
         Vec3d unfoldAxis = getUnfoldAxisDirection(UnfoldManager.currentDirection);
         BlockPos currentStandingBlockPos = player.getBlockPos().down();
         int currentStandingY = world.isAir(currentStandingBlockPos) ? -1 : currentStandingBlockPos.getY();
         float hw = player.getWidth() / 2f;
         float inward_offset = 0.01f;
-        Vec3d pivotPoint = player.getPos().add(-hw + inward_offset, 0, -hw + inward_offset);
+
+        // 【最终修正】
+        // 基于用户的精确反馈，直接映射正确的几何关系
+        float pivotXOffset, pivotZOffset;
+        float inwardXOffset, inwardZOffset;
+
+        ViewDirection direction = UnfoldManager.currentDirection;
+        switch (direction) {
+            case ISO_POS_X_POS_Y:      // 东北视角
+            case ISO_POS_X_POS_Y_2:
+                // 正确的 "下方" 顶点是 (+X, -Z)
+                pivotXOffset = hw;
+                pivotZOffset = -hw;
+                inwardXOffset = -inward_offset;
+                inwardZOffset = inward_offset;
+                break;
+
+            case ISO_POS_X_NEG_Y:      // 东南视角
+            case ISO_POS_X_NEG_Y_2:
+                // 正确的 "下方" 顶点是 (+X, +Z)
+                pivotXOffset = hw;
+                pivotZOffset = hw;
+                inwardXOffset = -inward_offset;
+                inwardZOffset = -inward_offset;
+                break;
+
+            case ISO_NEG_X_POS_Y:      // 西北视角
+            case ISO_NEG_X_POS_Y_2:
+                // 正确的 "下方" 顶点是 (-X, -Z)
+                pivotXOffset = -hw;
+                pivotZOffset = -hw;
+                inwardXOffset = inward_offset;
+                inwardZOffset = inward_offset;
+                break;
+
+            case ISO_NEG_X_NEG_Y:      // 西南视角 (这个是之前唯一正确的)
+            case ISO_NEG_X_NEG_Y_2:
+                // 正确的 "下方" 顶点是 (-X, +Z)
+                pivotXOffset = -hw;
+                pivotZOffset = hw;
+                inwardXOffset = inward_offset;
+                inwardZOffset = -inward_offset;
+                break;
+
+            default:
+                return null;
+        }
+
+        Vec3d pivotPoint = player.getPos().add(pivotXOffset + inwardXOffset, 0, pivotZOffset + inwardZOffset);
+        // 【修正结束】
+
 
         // 3. 探测高处（从相机方向射向玩家）
         Vec3d highProbeStart = pivotPoint.subtract(unfoldAxis.multiply(MAX_DISTANCE));
@@ -223,8 +274,6 @@ public class UnfoldTeleportLogic {
         if (isValidHit(highHit) && highHit.getSide() == Direction.UP) {
             BlockPos targetBlock = highHit.getBlockPos();
             if (targetBlock.getY() > currentStandingY && isSafePlatform(world, targetBlock, Direction.UP)) {
-                UnfoldMod.LOGGER.info("Isometric: Unified probe found HIGH platform at {}", targetBlock.up());
-                // 【修改】使用投影计算瞬移目标
                 return projectPlayerToTargetY(player, targetBlock.getY(), unfoldAxis);
             }
         }
@@ -237,8 +286,6 @@ public class UnfoldTeleportLogic {
         if (isValidHit(lowHit) && lowHit.getSide() == Direction.UP) {
             BlockPos targetBlock = lowHit.getBlockPos();
             if (targetBlock.getY() < currentStandingY && isSafePlatform(world, targetBlock, Direction.UP)) {
-                UnfoldMod.LOGGER.info("Isometric: Unified probe found LOW platform at {}", targetBlock.up());
-                // 【修改】使用投影计算瞬移目标
                 return projectPlayerToTargetY(player, targetBlock.getY(), unfoldAxis);
             }
         }

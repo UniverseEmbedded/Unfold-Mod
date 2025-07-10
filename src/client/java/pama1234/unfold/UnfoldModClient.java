@@ -8,6 +8,7 @@ import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.option.Perspective;
 import net.minecraft.client.util.InputUtil;
+import net.minecraft.text.Text;
 import net.minecraft.util.math.Vec3d;
 import org.lwjgl.glfw.GLFW;
 import pama1234.unfold.command.TestCommand;
@@ -19,7 +20,8 @@ import pama1234.unfold.util.ViewDirection;
 
 public class UnfoldModClient implements ClientModInitializer {
     private static KeyBinding toggleKey;
-    private static KeyBinding sneakKey;
+    // 移除 sneakKey，因为它没有被使用
+    // private static KeyBinding sneakKey;
 
     private static Perspective originalPerspective;
     private static boolean teleportCooldown = false;
@@ -30,15 +32,13 @@ public class UnfoldModClient implements ClientModInitializer {
                 "key.unfold.toggle", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_F, "category.unfold"
         ));
 
-        // 在客户端初始化时获取一次实例
-        MinecraftClient client = MinecraftClient.getInstance();
-        if(client != null && client.options != null) {
-            sneakKey = client.options.sneakKey;
-        }
-
+        // 此处获取 sneakKey 的逻辑可以移除，因为它未在后续代码中使用
+        // MinecraftClient client = MinecraftClient.getInstance();
+        // if(client != null && client.options != null) {
+        //     sneakKey = client.options.sneakKey;
+        // }
 
         ClientTickEvents.END_CLIENT_TICK.register(tickClient -> {
-            // 【新增】驱动测试器
             TestRunner.INSTANCE.tick();
 
             ClientPlayerEntity player = tickClient.player;
@@ -59,6 +59,7 @@ public class UnfoldModClient implements ClientModInitializer {
                     }
                 }
 
+                // 【注意】原有的 handlePlayerMovement 似乎只处理水平模式，此处保持不变
                 handlePlayerMovement(tickClient, player);
             }
         });
@@ -66,34 +67,63 @@ public class UnfoldModClient implements ClientModInitializer {
         TestCommand.register();
     }
 
+
+    /**
+     * 处理模式切换的逻辑。
+     * 修正：在进入展开模式时，在聊天栏打印纯中文的模式和视角方向。
+     *
+     * @param client 客户端实例。
+     * @param player 客户端玩家实体。
+     */
     private void handleModeToggle(MinecraftClient client, ClientPlayerEntity player) {
         if (toggleKey.wasPressed()) {
             UnfoldManager.unfolding = !UnfoldManager.unfolding;
 
             if (UnfoldManager.unfolding) {
-                // 先获取最接近的方向
+                // 进入展开模式的逻辑
                 UnfoldManager.currentDirection = ViewDirection.getClosest(player);
-                // 再根据玩家的实际Pitch和计算出的方向，决定最终模式
+                // 假设您使用了我之前建议的修改，优先判断垂直模式
                 UnfoldManager.currentMode = UnfoldMode.fromPlayerPitch(player.getPitch(), UnfoldManager.currentDirection);
-                UnfoldMod.LOGGER.info("Unfold Mode Activated: {}", UnfoldManager.currentMode);
+
+                // 【修改开始】
+                // 现在完全使用中文名称
+                String modeName;
+                switch (UnfoldManager.currentMode) {
+                    case VERTICAL:
+                        modeName = "垂直模式";
+                        break;
+                    case HORIZONTAL:
+                        modeName = "水平模式";
+                        break;
+                    case ISOMETRIC:
+                        modeName = "斜角模式";
+                        break;
+                    default:
+                        modeName = "未知模式";
+                        break;
+                }
+
+                // 从 ViewDirection 枚举中获取中文名
+                String directionName = UnfoldManager.currentDirection.chineseName;
+
+                // 构建完整的消息文本
+                String message = String.format("已进入: %s (视角: %s)", modeName, directionName);
+
+                // 发送消息到玩家的聊天栏
+                player.sendMessage(Text.literal(message), false);
+                // 【修改结束】
+
+                UnfoldMod.LOGGER.info("Unfold Mode Activated: {} (Direction: {})", UnfoldManager.currentMode, UnfoldManager.currentDirection.name());
 
                 originalPerspective = client.options.getPerspective();
                 client.options.setPerspective(Perspective.THIRD_PERSON_BACK);
 
-                // 【已修复】禁用按键的逻辑比较复杂，暂时注释以确保编译通过
-                // if (UnfoldManager.currentMode == UnfoldMode.HORIZONTAL) {
-                //     // client.options.forwardKey.setEnabled(false);
-                //     // client.options.backKey.setEnabled(false);
-                // }
-
             } else {
+                // 退出展开模式的逻辑
                 UnfoldMod.LOGGER.info("Unfold Mode Deactivated");
                 if (originalPerspective != null) {
                     client.options.setPerspective(originalPerspective);
                 }
-                // 【已修复】
-                // client.options.forwardKey.setEnabled(true);
-                // client.options.backKey.setEnabled(true);
             }
         }
     }
@@ -108,7 +138,7 @@ public class UnfoldModClient implements ClientModInitializer {
             if (client.options.leftKey.isPressed()) strafeInput -= 1.0f;
             if (client.options.rightKey.isPressed()) strafeInput += 1.0f;
 
-            if (Math.abs(strafeInput) < 0.001f && player.isOnGround()) { // 只在地面上停止
+            if (Math.abs(strafeInput) < 0.001f && player.isOnGround()) {
                 player.setVelocity(0, player.getVelocity().y, 0);
                 return;
             }
@@ -122,8 +152,8 @@ public class UnfoldModClient implements ClientModInitializer {
     }
 
     private static Vec3d getUnfoldAxisDirection(ViewDirection viewDirection) {
-        float yawRad = viewDirection.yaw * (float)(Math.PI / 180.0);
-        float pitchRad = viewDirection.pitch * (float)(Math.PI / 180.0);
+        float yawRad = viewDirection.yaw * (float) (Math.PI / 180.0);
+        float pitchRad = viewDirection.pitch * (float) (Math.PI / 180.0);
         double x = -Math.sin(yawRad) * Math.cos(pitchRad);
         double y = -Math.sin(pitchRad);
         double z = Math.cos(yawRad) * Math.cos(pitchRad);
