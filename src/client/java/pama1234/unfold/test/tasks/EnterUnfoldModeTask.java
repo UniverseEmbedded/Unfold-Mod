@@ -25,7 +25,7 @@ public class EnterUnfoldModeTask implements TestTask {
     public void onStart(TestRunner runner, ClientPlayerEntity player) {
         UnfoldManager.unfolding = true;
         UnfoldManager.currentDirection = direction;
-        UnfoldManager.currentMode = UnfoldMode.from(direction);
+        UnfoldManager.currentMode = UnfoldMode.fromPlayerPitch(player.getPitch(), direction);
         MinecraftClient.getInstance().options.setPerspective(Perspective.THIRD_PERSON_BACK);
         player.setYaw(direction.yaw);
         player.setPitch(direction.pitch);

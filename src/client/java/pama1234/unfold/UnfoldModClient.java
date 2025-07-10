@@ -71,8 +71,10 @@ public class UnfoldModClient implements ClientModInitializer {
             UnfoldManager.unfolding = !UnfoldManager.unfolding;
 
             if (UnfoldManager.unfolding) {
+                // 先获取最接近的方向
                 UnfoldManager.currentDirection = ViewDirection.getClosest(player);
-                UnfoldManager.currentMode = UnfoldMode.from(UnfoldManager.currentDirection);
+                // 再根据玩家的实际Pitch和计算出的方向，决定最终模式
+                UnfoldManager.currentMode = UnfoldMode.fromPlayerPitch(player.getPitch(), UnfoldManager.currentDirection);
                 UnfoldMod.LOGGER.info("Unfold Mode Activated: {}", UnfoldManager.currentMode);
 
                 originalPerspective = client.options.getPerspective();
