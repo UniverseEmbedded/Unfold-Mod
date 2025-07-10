@@ -215,7 +215,7 @@ public class UnfoldTeleportLogic {
         float hw = player.getWidth() / 2f;
 
         float inward_offset_1 = 0.01f; // 辅助线1（瞬移探测）的偏移
-        float inward_offset_2 = 0.11f; // 辅助线2（路径/阴影探测）的偏移
+        float inward_offset_2 = 0.5f; // 辅助线2（路径/阴影探测）的偏移
 
         // 动态计算基准角落和向内方向
         float pivotXOffset, pivotZOffset;
