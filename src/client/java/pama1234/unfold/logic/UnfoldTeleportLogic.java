@@ -1,6 +1,5 @@
 package pama1234.unfold.logic;
 
-import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.util.hit.BlockHitResult;
@@ -149,83 +148,99 @@ public class UnfoldTeleportLogic {
     }
 
     /**
+     * 将玩家的当前位置沿着展开轴投影到目标Y平面上，计算出新的瞬移目标位置。
+     * 这确保了玩家在屏幕上的位置保持不变，只改变其深度。
+     *
+     * @param player       客户端玩家实体。
+     * @param targetBlockY 目标方块的Y坐标。
+     * @param unfoldAxis   当前的展开轴向量。
+     * @return 计算出的、保持屏幕位置不变的瞬移目标点。
+     */
+    private static Vec3d projectPlayerToTargetY(ClientPlayerEntity player, int targetBlockY, Vec3d unfoldAxis) {
+        Vec3d playerPos = player.getPos();
+        double currentY = playerPos.y;
+        // 目标站立高度 = 目标方块高度 + 1
+        double targetY = targetBlockY + 1.0;
+
+        // 展开轴的Y分量
+        double unfoldAxisY = unfoldAxis.y;
+
+        // 防止除以零的边缘情况（虽然在斜角模式下几乎不可能发生）
+        if (Math.abs(unfoldAxisY) < EPSILON) {
+            return new Vec3d(playerPos.x, targetY, playerPos.z);
+        }
+
+        // 计算投影所需的距离 't'
+        // 公式: targetY = currentY + t * unfoldAxisY
+        // -> t = (targetY - currentY) / unfoldAxisY
+        double t = (targetY - currentY) / unfoldAxisY;
+
+        // 根据 't' 计算新的 X 和 Z 坐标
+        // newPos = currentPos + t * unfoldAxis
+        double newX = playerPos.x + t * unfoldAxis.x;
+        double newZ = playerPos.z + t * unfoldAxis.z;
+
+        return new Vec3d(newX, targetY, newZ);
+    }
+
+    /**
      * 处理斜向展开模式（纪念碑谷风格）下的瞬移逻辑。
-     * 该模式下瞬移主要基于玩家是否在空中以及射线探测到的视觉重叠平台。
-     * 修正：为了解决从低处瞬移到高台的问题，新增一个在玩家向上移动时优先进行垂直射线探测的逻辑。
-     * 修正2：为了防止在平地上移动时触发不必要的瞬移，新增一个检查，如果目标平台与当前平台高度相同，则不瞬移。
+     * 采用了统一的单辅助线设计，来同时处理从高到低和从低到高的瞬移。
      *
      * @param player 客户端玩家实体。
      * @param world  客户端世界。
      * @return 瞬移的目标位置 {@code Vec3d}，如果没有合适的瞬移则返回 {@code null}。
      */
     private static Vec3d handleIsometricTeleport(ClientPlayerEntity player, ClientWorld world) {
-        // 【修改开始】
-        // 1. 优先处理玩家向上跳跃/移动的场景：
-        // 如果玩家正在向上移动 (Y轴速度大于0)，则尝试进行垂直向上的瞬移。
-        if (player.getVelocity().y > 0) {
-            // 从玩家当前位置垂直向上发射射线。
-            RaycastContext context = new RaycastContext(
+        // 1. 优先处理玩家原地向上跳跃的场景 (这个逻辑仍然有价值，可以快速处理正上方的平台)
+        if (player.getVelocity().y > 0.1) { // 使用一个略大的阈值避免走路时的小跳动触发
+            RaycastContext jumpContext = new RaycastContext(
                     player.getPos(),
-                    player.getPos().add(0, MAX_DISTANCE, 0), // 纯粹向上探测
+                    player.getPos().add(0, MAX_DISTANCE, 0),
                     RaycastContext.ShapeType.COLLIDER,
                     RaycastContext.FluidHandling.NONE,
                     player
             );
-            BlockHitResult hit = world.raycast(context);
-
-            if (isValidHit(hit) && isSafePlatform(world, hit.getBlockPos(), Direction.UP)) {
-                // 如果检测到上方有安全平台，则直接返回该位置。
-                UnfoldMod.LOGGER.info("Isometric: Vertical jump-up opportunity found at {}", hit.getBlockPos().up());
+            BlockHitResult hit = world.raycast(jumpContext);
+            if (isValidHit(hit) && hit.getSide() == Direction.UP && isSafePlatform(world, hit.getBlockPos(), Direction.UP)) {
                 return Vec3d.ofBottomCenter(hit.getBlockPos().up());
             }
         }
-        // 【修改结束】
 
-        // 如果没有向上跳跃的瞬移发生，则执行原有的斜向深度探测逻辑。
-        // 这段逻辑更适用于玩家悬空、下落或沿着等轴测深度方向移动的情况。
-        // if (player.isOnGround()) { // 根据您的要求，暂时注释掉此行
-        //    return null;
-        // }
-
+        // 2. 实现统一的单辅助线逻辑
         Vec3d unfoldAxis = getUnfoldAxisDirection(UnfoldManager.currentDirection);
-        List<BlockHitResult> hits = castIsometricProbes(player, world, unfoldAxis);
-
-        BlockHitResult frontHit = hits.get(0);
-        BlockHitResult backHit = hits.get(1);
-        BlockHitResult leftHit = hits.get(2);
-        BlockHitResult rightHit = hits.get(3);
-
-        double currentY = player.getY();
-        // 【新增】获取玩家脚下方块的高度。如果脚下是空气，则使用一个不可能的高度值。
         BlockPos currentStandingBlockPos = player.getBlockPos().down();
         int currentStandingY = world.isAir(currentStandingBlockPos) ? -1 : currentStandingBlockPos.getY();
+        float hw = player.getWidth() / 2f;
+        float inward_offset = 0.01f;
+        Vec3d pivotPoint = player.getPos().add(-hw + inward_offset, 0, -hw + inward_offset);
 
-        // 原有的从高处瞬移到低处的逻辑
-        if (isValidHit(backHit) && isValidHit(rightHit) && backHit.getBlockPos().getY() < currentY && rightHit.getBlockPos().getY() < currentY) {
-            // 【新增】如果目标平台与当前平台高度相同，则不瞬移
-            if (backHit.getBlockPos().getY() == currentStandingY) return null;
-            UnfoldMod.LOGGER.info("Isometric: High to low (back-right) opportunity found at {}", backHit.getBlockPos().up());
-            return Vec3d.ofBottomCenter(backHit.getBlockPos().up());
-        }
-        if (isValidHit(backHit) && isValidHit(leftHit) && backHit.getBlockPos().getY() < currentY && leftHit.getBlockPos().getY() < currentY) {
-            // 【新增】如果目标平台与当前平台高度相同，则不瞬移
-            if (backHit.getBlockPos().getY() == currentStandingY) return null;
-            UnfoldMod.LOGGER.info("Isometric: High to low (back-left) opportunity found at {}", backHit.getBlockPos().up());
-            return Vec3d.ofBottomCenter(backHit.getBlockPos().up());
+        // 3. 探测高处（从相机方向射向玩家）
+        Vec3d highProbeStart = pivotPoint.subtract(unfoldAxis.multiply(MAX_DISTANCE));
+        RaycastContext highProbeContext = new RaycastContext(highProbeStart, pivotPoint, RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, player);
+        BlockHitResult highHit = world.raycast(highProbeContext);
+
+        if (isValidHit(highHit) && highHit.getSide() == Direction.UP) {
+            BlockPos targetBlock = highHit.getBlockPos();
+            if (targetBlock.getY() > currentStandingY && isSafePlatform(world, targetBlock, Direction.UP)) {
+                UnfoldMod.LOGGER.info("Isometric: Unified probe found HIGH platform at {}", targetBlock.up());
+                // 【修改】使用投影计算瞬移目标
+                return projectPlayerToTargetY(player, targetBlock.getY(), unfoldAxis);
+            }
         }
 
-        // 原有的从低处瞬移到高处的逻辑
-        if (isValidHit(frontHit) && isValidHit(rightHit) && frontHit.getBlockPos().getY() > currentY && rightHit.getBlockPos().getY() > currentY) {
-            // 【新增】如果目标平台与当前平台高度相同，则不瞬移
-            if (frontHit.getBlockPos().getY() == currentStandingY) return null;
-            UnfoldMod.LOGGER.info("Isometric: Low to high (front-right) opportunity found at {}", frontHit.getBlockPos().up());
-            return Vec3d.ofBottomCenter(frontHit.getBlockPos().up());
-        }
-        if (isValidHit(frontHit) && isValidHit(leftHit) && frontHit.getBlockPos().getY() > currentY && leftHit.getBlockPos().getY() > currentY) {
-            // 【新增】如果目标平台与当前平台高度相同，则不瞬移
-            if (frontHit.getBlockPos().getY() == currentStandingY) return null;
-            UnfoldMod.LOGGER.info("Isometric: Low to high (front-left) opportunity found at {}", frontHit.getBlockPos().up());
-            return Vec3d.ofBottomCenter(frontHit.getBlockPos().up());
+        // 4. 探测低处（从玩家方向射向远处）
+        Vec3d lowProbeEnd = pivotPoint.add(unfoldAxis.multiply(MAX_DISTANCE));
+        RaycastContext lowProbeContext = new RaycastContext(pivotPoint, lowProbeEnd, RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, player);
+        BlockHitResult lowHit = world.raycast(lowProbeContext);
+
+        if (isValidHit(lowHit) && lowHit.getSide() == Direction.UP) {
+            BlockPos targetBlock = lowHit.getBlockPos();
+            if (targetBlock.getY() < currentStandingY && isSafePlatform(world, targetBlock, Direction.UP)) {
+                UnfoldMod.LOGGER.info("Isometric: Unified probe found LOW platform at {}", targetBlock.up());
+                // 【修改】使用投影计算瞬移目标
+                return projectPlayerToTargetY(player, targetBlock.getY(), unfoldAxis);
+            }
         }
 
         return null;
@@ -290,7 +305,7 @@ public class UnfoldTeleportLogic {
         List<Vec3d> origins = new ArrayList<>();
         Vec3d center = player.getPos(); // 玩家的中心位置。
         // 玩家宽度的一半，加上一个小的偏移量 EPSILON，以确保从碰撞箱外开始探测。
-        float hw = player.getWidth() / 2f + (float)EPSILON;
+        float hw = player.getWidth() / 2f + (float) EPSILON;
         // 添加玩家碰撞箱四个角落的X/Z投影点作为探测起点。
         origins.add(center.add(hw, 0, 0));
         origins.add(center.add(-hw, 0, 0));
@@ -408,7 +423,7 @@ public class UnfoldTeleportLogic {
         List<BlockHitResult> results = new ArrayList<>();
         Vec3d center = player.getPos(); // 玩家的中心位置。
         // 玩家宽度的一半，减去一个小的偏移量 EPSILON，使射线从碰撞箱内部稍微开始，更精确地探测边缘。
-        float hw = player.getWidth() / 2f - (float)EPSILON;
+        float hw = player.getWidth() / 2f - (float) EPSILON;
 
         // 定义四条射线的起始点，位于玩家当前Y平面上，大致对应玩家碰撞箱的四个角。
         Vec3d[] origins = {
@@ -435,8 +450,8 @@ public class UnfoldTeleportLogic {
      */
     private static Vec3d getUnfoldAxisDirection(ViewDirection viewDirection) {
         // 将偏航角和俯仰角转换为弧度。
-        float yawRad = viewDirection.yaw * (float)(Math.PI / 180.0);
-        float pitchRad = viewDirection.pitch * (float)(Math.PI / 180.0);
+        float yawRad = viewDirection.yaw * (float) (Math.PI / 180.0);
+        float pitchRad = viewDirection.pitch * (float) (Math.PI / 180.0);
         // 根据球坐标系公式计算出三维方向向量。
         // 注意：Minecraft 的偏航角和坐标系与标准有所不同，这里需要适配。
         double x = -Math.sin(yawRad) * Math.cos(pitchRad);
