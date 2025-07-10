@@ -192,93 +192,98 @@ public class UnfoldTeleportLogic {
      * @return 瞬移的目标位置 {@code Vec3d}，如果没有合适的瞬移则返回 {@code null}。
      */
     private static Vec3d handleIsometricTeleport(ClientPlayerEntity player, ClientWorld world) {
-        // 1. 优先处理玩家原地向上跳跃的场景 (这个逻辑仍然有价值，可以快速处理正上方的平台)
-        if (player.getVelocity().y > 0.1) { // 使用一个略大的阈值避免走路时的小跳动触发
-            RaycastContext jumpContext = new RaycastContext(
-                    player.getPos(),
-                    player.getPos().add(0, MAX_DISTANCE, 0),
-                    RaycastContext.ShapeType.COLLIDER,
-                    RaycastContext.FluidHandling.NONE,
-                    player
-            );
-            BlockHitResult hit = world.raycast(jumpContext);
-            if (isValidHit(hit) && hit.getSide() == Direction.UP && isSafePlatform(world, hit.getBlockPos(), Direction.UP)) {
-                return Vec3d.ofBottomCenter(hit.getBlockPos().up());
-            }
-        }
+//        // 1. 优先处理玩家原地向上跳跃的场景 (这个逻辑仍然有价值，可以快速处理正上方的平台)
+//        if (player.getVelocity().y > 0.1) { // 使用一个略大的阈值避免走路时的小跳动触发
+//            RaycastContext jumpContext = new RaycastContext(
+//                    player.getPos(),
+//                    player.getPos().add(0, MAX_DISTANCE, 0),
+//                    RaycastContext.ShapeType.COLLIDER,
+//                    RaycastContext.FluidHandling.NONE,
+//                    player
+//            );
+//            BlockHitResult hit = world.raycast(jumpContext);
+//            if (isValidHit(hit) && hit.getSide() == Direction.UP && isSafePlatform(world, hit.getBlockPos(), Direction.UP)) {
+//                return Vec3d.ofBottomCenter(hit.getBlockPos().up());
+//            }
+//        }
 
 
-        // 2. 实现统一的单辅助线逻辑
+        // 2. 实现双辅助线逻辑
         Vec3d unfoldAxis = getUnfoldAxisDirection(UnfoldManager.currentDirection);
         BlockPos currentStandingBlockPos = player.getBlockPos().down();
         int currentStandingY = world.isAir(currentStandingBlockPos) ? -1 : currentStandingBlockPos.getY();
         float hw = player.getWidth() / 2f;
-        float inward_offset = 0.01f;
 
-        // 【最终修正】
-        // 基于用户的精确反馈，直接映射正确的几何关系
+        float inward_offset_1 = 0.01f; // 辅助线1（瞬移探测）的偏移
+        float inward_offset_2 = 0.11f; // 辅助线2（路径/阴影探测）的偏移
+
+        // 动态计算基准角落和向内方向
         float pivotXOffset, pivotZOffset;
-        float inwardXOffset, inwardZOffset;
+        float inwardXSign, inwardZSign;
 
+        // ... (switch 语句保持不变) ...
         ViewDirection direction = UnfoldManager.currentDirection;
         switch (direction) {
-            case ISO_POS_X_POS_Y:      // 东北视角
-            case ISO_POS_X_POS_Y_2:
-                // 正确的 "下方" 顶点是 (+X, -Z)
-                pivotXOffset = hw;
-                pivotZOffset = -hw;
-                inwardXOffset = -inward_offset;
-                inwardZOffset = inward_offset;
+            case ISO_POS_X_POS_Y: case ISO_POS_X_POS_Y_2:       // 东北
+                pivotXOffset = hw; pivotZOffset = -hw;
+                inwardXSign = -1.0f; inwardZSign = 1.0f;
                 break;
-
-            case ISO_POS_X_NEG_Y:      // 东南视角
-            case ISO_POS_X_NEG_Y_2:
-                // 正确的 "下方" 顶点是 (+X, +Z)
-                pivotXOffset = hw;
-                pivotZOffset = hw;
-                inwardXOffset = -inward_offset;
-                inwardZOffset = -inward_offset;
+            case ISO_POS_X_NEG_Y: case ISO_POS_X_NEG_Y_2:       // 东南
+                pivotXOffset = hw; pivotZOffset = hw;
+                inwardXSign = -1.0f; inwardZSign = -1.0f;
                 break;
-
-            case ISO_NEG_X_POS_Y:      // 西北视角
-            case ISO_NEG_X_POS_Y_2:
-                // 正确的 "下方" 顶点是 (-X, -Z)
-                pivotXOffset = -hw;
-                pivotZOffset = -hw;
-                inwardXOffset = inward_offset;
-                inwardZOffset = inward_offset;
+            case ISO_NEG_X_POS_Y: case ISO_NEG_X_POS_Y_2:       // 西北
+                pivotXOffset = -hw; pivotZOffset = -hw;
+                inwardXSign = 1.0f; inwardZSign = 1.0f;
                 break;
-
-            case ISO_NEG_X_NEG_Y:      // 西南视角 (这个是之前唯一正确的)
-            case ISO_NEG_X_NEG_Y_2:
-                // 正确的 "下方" 顶点是 (-X, +Z)
-                pivotXOffset = -hw;
-                pivotZOffset = hw;
-                inwardXOffset = inward_offset;
-                inwardZOffset = -inward_offset;
+            case ISO_NEG_X_NEG_Y: case ISO_NEG_X_NEG_Y_2:       // 西南
+                pivotXOffset = -hw; pivotZOffset = hw;
+                inwardXSign = 1.0f; inwardZSign = -1.0f;
                 break;
-
             default:
                 return null;
         }
 
-        Vec3d pivotPoint = player.getPos().add(pivotXOffset + inwardXOffset, 0, pivotZOffset + inwardZOffset);
-        // 【修正结束】
+        // 计算辅助线1（瞬移探测）的作用点
+        Vec3d pivotPoint = player.getPos().add(
+                pivotXOffset + (inwardXSign * inward_offset_1),
+                0,
+                pivotZOffset + (inwardZSign * inward_offset_1)
+        );
 
+        // 计算辅助线2（路径/阴影探测）的作用点
+        Vec3d shadowProbePoint = player.getPos().add(
+                pivotXOffset + (inwardXSign * inward_offset_2),
+                0,
+                pivotZOffset + (inwardZSign * inward_offset_2)
+        );
 
-        // 3. 探测高处（从相机方向射向玩家）
-        Vec3d highProbeStart = pivotPoint.subtract(unfoldAxis.multiply(MAX_DISTANCE));
-        RaycastContext highProbeContext = new RaycastContext(highProbeStart, pivotPoint, RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, player);
-        BlockHitResult highHit = world.raycast(highProbeContext);
+        // 3. 执行辅助线2（阴影探测），判断是否可以向上瞬移
+        RaycastContext shadowContext = new RaycastContext(shadowProbePoint, shadowProbePoint.subtract(unfoldAxis.multiply(MAX_DISTANCE)), RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, player);
+        BlockHitResult shadowHit = world.raycast(shadowContext);
 
-        if (isValidHit(highHit) && highHit.getSide() == Direction.UP) {
-            BlockPos targetBlock = highHit.getBlockPos();
-            if (targetBlock.getY() > currentStandingY && isSafePlatform(world, targetBlock, Direction.UP)) {
-                return projectPlayerToTargetY(player, targetBlock.getY(), unfoldAxis);
+        // 【修改】根据你的最新指令，设置一个布尔标志位
+        // 只有当辅助线2没有被不同高度的方块遮挡时，才允许向上瞬移
+        boolean canTeleportUp = !(isValidHit(shadowHit) && shadowHit.getBlockPos().getY() != currentStandingY);
+
+        // 4. 执行辅助线1（瞬移探测）
+
+        // 探测高处
+        // 【修改】增加了对 canTeleportUp 标志的检查
+        if (canTeleportUp) {
+            Vec3d highProbeStart = pivotPoint.subtract(unfoldAxis.multiply(MAX_DISTANCE));
+            RaycastContext highProbeContext = new RaycastContext(highProbeStart, pivotPoint, RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, player);
+            BlockHitResult highHit = world.raycast(highProbeContext);
+
+            if (isValidHit(highHit) && highHit.getSide() == Direction.UP) {
+                BlockPos targetBlock = highHit.getBlockPos();
+                if (targetBlock.getY() > currentStandingY && isSafePlatform(world, targetBlock, Direction.UP)) {
+                    return projectPlayerToTargetY(player, targetBlock.getY(), unfoldAxis);
+                }
             }
         }
 
-        // 4. 探测低处（从玩家方向射向远处）
+        // 探测低处（不受辅助线2的影响）
         Vec3d lowProbeEnd = pivotPoint.add(unfoldAxis.multiply(MAX_DISTANCE));
         RaycastContext lowProbeContext = new RaycastContext(pivotPoint, lowProbeEnd, RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, player);
         BlockHitResult lowHit = world.raycast(lowProbeContext);
