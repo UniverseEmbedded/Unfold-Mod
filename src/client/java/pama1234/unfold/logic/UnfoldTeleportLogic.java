@@ -151,58 +151,84 @@ public class UnfoldTeleportLogic {
     /**
      * 处理斜向展开模式（纪念碑谷风格）下的瞬移逻辑。
      * 该模式下瞬移主要基于玩家是否在空中以及射线探测到的视觉重叠平台。
+     * 修正：为了解决从低处瞬移到高台的问题，新增一个在玩家向上移动时优先进行垂直射线探测的逻辑。
+     * 修正2：为了防止在平地上移动时触发不必要的瞬移，新增一个检查，如果目标平台与当前平台高度相同，则不瞬移。
      *
      * @param player 客户端玩家实体。
      * @param world  客户端世界。
      * @return 瞬移的目标位置 {@code Vec3d}，如果没有合适的瞬移则返回 {@code null}。
      */
-    // --- 斜向模式逻辑 ---
     private static Vec3d handleIsometricTeleport(ClientPlayerEntity player, ClientWorld world) {
-        // 在斜向模式下，只有玩家不在地面上时才可能触发瞬移（即在空中）。
-        if (player.isOnGround()) {
-            return null;
+        // 【修改开始】
+        // 1. 优先处理玩家向上跳跃/移动的场景：
+        // 如果玩家正在向上移动 (Y轴速度大于0)，则尝试进行垂直向上的瞬移。
+        if (player.getVelocity().y > 0) {
+            // 从玩家当前位置垂直向上发射射线。
+            RaycastContext context = new RaycastContext(
+                    player.getPos(),
+                    player.getPos().add(0, MAX_DISTANCE, 0), // 纯粹向上探测
+                    RaycastContext.ShapeType.COLLIDER,
+                    RaycastContext.FluidHandling.NONE,
+                    player
+            );
+            BlockHitResult hit = world.raycast(context);
+
+            if (isValidHit(hit) && isSafePlatform(world, hit.getBlockPos(), Direction.UP)) {
+                // 如果检测到上方有安全平台，则直接返回该位置。
+                UnfoldMod.LOGGER.info("Isometric: Vertical jump-up opportunity found at {}", hit.getBlockPos().up());
+                return Vec3d.ofBottomCenter(hit.getBlockPos().up());
+            }
         }
+        // 【修改结束】
 
-        // 获取当前等轴测视图的“深度”方向向量。
-        // 这个向量代表了在当前视角下，远离摄像机的方向。
+        // 如果没有向上跳跃的瞬移发生，则执行原有的斜向深度探测逻辑。
+        // 这段逻辑更适用于玩家悬空、下落或沿着等轴测深度方向移动的情况。
+        // if (player.isOnGround()) { // 根据您的要求，暂时注释掉此行
+        //    return null;
+        // }
+
         Vec3d unfoldAxis = getUnfoldAxisDirection(UnfoldManager.currentDirection);
-
-        // 从玩家身体周围的四个角（近似）向 unfoldAxis 方向发射射线，探测方块。
         List<BlockHitResult> hits = castIsometricProbes(player, world, unfoldAxis);
 
-        // 提取四条射线的命中结果。
         BlockHitResult frontHit = hits.get(0);
         BlockHitResult backHit = hits.get(1);
         BlockHitResult leftHit = hits.get(2);
         BlockHitResult rightHit = hits.get(3);
 
-        double currentY = player.getY(); // 玩家当前的Y坐标（高度）
+        double currentY = player.getY();
+        // 【新增】获取玩家脚下方块的高度。如果脚下是空气，则使用一个不可能的高度值。
+        BlockPos currentStandingBlockPos = player.getBlockPos().down();
+        int currentStandingY = world.isAir(currentStandingBlockPos) ? -1 : currentStandingBlockPos.getY();
 
-        // 瞬移逻辑判断：从高处瞬移到低处 (例如信仰之跃，或视觉错觉导致跌落)。
-        // 如果后方和右方的射线都命中了有效的方块，并且它们的Y坐标都低于玩家当前Y坐标，
-        // 意味着玩家在视觉上“走下”了台阶或穿过下方平台。
+        // 原有的从高处瞬移到低处的逻辑
         if (isValidHit(backHit) && isValidHit(rightHit) && backHit.getBlockPos().getY() < currentY && rightHit.getBlockPos().getY() < currentY) {
-            // 返回后方命中方块上方中心点的位置作为瞬移目标。
+            // 【新增】如果目标平台与当前平台高度相同，则不瞬移
+            if (backHit.getBlockPos().getY() == currentStandingY) return null;
+            UnfoldMod.LOGGER.info("Isometric: High to low (back-right) opportunity found at {}", backHit.getBlockPos().up());
             return Vec3d.ofBottomCenter(backHit.getBlockPos().up());
         }
-        // 类似地，如果后方和左方的射线都命中了低于玩家Y坐标的方块。
         if (isValidHit(backHit) && isValidHit(leftHit) && backHit.getBlockPos().getY() < currentY && leftHit.getBlockPos().getY() < currentY) {
+            // 【新增】如果目标平台与当前平台高度相同，则不瞬移
+            if (backHit.getBlockPos().getY() == currentStandingY) return null;
+            UnfoldMod.LOGGER.info("Isometric: High to low (back-left) opportunity found at {}", backHit.getBlockPos().up());
             return Vec3d.ofBottomCenter(backHit.getBlockPos().up());
         }
 
-        // 瞬移逻辑判断：从低处瞬移到高处 (例如跳跃到视觉上相邻的高台)。
-        // 如果前方和右方的射线都命中了有效的方块，并且它们的Y坐标都高于玩家当前Y坐标，
-        // 意味着玩家在视觉上“跳上”了台阶或穿过上方平台。
+        // 原有的从低处瞬移到高处的逻辑
         if (isValidHit(frontHit) && isValidHit(rightHit) && frontHit.getBlockPos().getY() > currentY && rightHit.getBlockPos().getY() > currentY) {
-            // 返回前方命中方块上方中心点的位置作为瞬移目标。
+            // 【新增】如果目标平台与当前平台高度相同，则不瞬移
+            if (frontHit.getBlockPos().getY() == currentStandingY) return null;
+            UnfoldMod.LOGGER.info("Isometric: Low to high (front-right) opportunity found at {}", frontHit.getBlockPos().up());
             return Vec3d.ofBottomCenter(frontHit.getBlockPos().up());
         }
-        // 类似地，如果前方和左方的射线都命中了高于玩家Y坐标的方块。
         if (isValidHit(frontHit) && isValidHit(leftHit) && frontHit.getBlockPos().getY() > currentY && leftHit.getBlockPos().getY() > currentY) {
+            // 【新增】如果目标平台与当前平台高度相同，则不瞬移
+            if (frontHit.getBlockPos().getY() == currentStandingY) return null;
+            UnfoldMod.LOGGER.info("Isometric: Low to high (front-left) opportunity found at {}", frontHit.getBlockPos().up());
             return Vec3d.ofBottomCenter(frontHit.getBlockPos().up());
         }
 
-        return null; // 没有找到符合条件的瞬移目标。
+        return null;
     }
 
     /**
