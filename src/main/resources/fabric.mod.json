@@ -3,7 +3,7 @@
 	"id": "unfold",
 	"version": "${version}",
 	"name": "Unfold Mod",
-	"description": "This is an example description! Tell everyone what your mod is about!",
+	"description": "在MC中实现了类似纪念碑谷和FEZ的视错觉瞬移效果",
 	"authors": [
 		"pama1234"
 	],
