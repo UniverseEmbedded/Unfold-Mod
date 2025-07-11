@@ -333,27 +333,39 @@ void main() {
 	float line = max(depthLine, sobelLine);
 	line = max(line, normalLine);
 
+	// --- 重构的颜色与遮罩逻辑 ---
+	// 1. 初始化最终的颜色和遮罩
+	float final_mask = line;
+	vec3 final_color;
+
 	#ifdef MONOCHROME
-	color = normalize(USER_COLOR) * line;
+		final_color = USER_COLOR;
 	#else
-	color = normalize(color) * line;
+		// 'color' 来自于对纹理的sobel运算结果
+		final_color = normalize(color);
 	#endif
 
+	// 2. 处理实体雷达逻辑
 	#ifdef ENTITY_RADAR
 		float entityMask = texture2D(colortex3, uv).a;
+		bool isEntity = entityMask > 0.01;
 
 		#ifdef RADAR_FILLED
-		bool doRadarColor = entityMask > 0.01;
-		#else
-		bool doRadarColor = line > 0.01;
+			if(isEntity) {
+				final_mask = 1.0; // 如果是填充模式，实体区域遮罩为1
+			}
 		#endif
-		
-		if(doRadarColor) {
-			color = equals(entityMask, 0.1, 0.01) ? ENTITY_COLOR_HOSTILE : color;
-			color = equals(entityMask, 0.2, 0.01) ? ENTITY_COLOR_FRIENDLY : color;
-			color = equals(entityMask, 0.3, 0.01) ? ENTITY_COLOR_PLAYER : color;
+
+		// 如果当前像素在实体上并且是可见的（遮罩>0），则应用雷达颜色
+		if (isEntity && final_mask > 0.01) {
+			 vec3 radar_color = final_color;
+			 radar_color = equals(entityMask, 0.1, 0.01) ? ENTITY_COLOR_HOSTILE  : radar_color;
+			 radar_color = equals(entityMask, 0.2, 0.01) ? ENTITY_COLOR_FRIENDLY : radar_color;
+			 radar_color = equals(entityMask, 0.3, 0.01) ? ENTITY_COLOR_PLAYER   : radar_color;
+			 final_color = radar_color;
 		}
 	#endif
 
-	gl_FragData[0] = vec4(color, 1.0);
+	// 3. 将颜色(rgb)和遮罩(a)打包输出到 colortex0
+	gl_FragData[0] = vec4(final_color, final_mask);
 }

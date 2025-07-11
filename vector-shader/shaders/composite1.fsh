@@ -23,23 +23,27 @@ vec2 distort(vec2 coord) {
 void main() {
 	vec2 uv_curved = distort(uv);
 
-	vec3 color = vec3(0.0);
+	vec3 color; // 最终输出的像素颜色
+
+	// 从 colortex0 解包数据
+	vec4 data = texture2D(colortex0, uv_curved);
+	vec3 line_color = data.rgb; // 线条/前景颜色
+	float line_mask = data.a;   // 线条遮罩
+
+	// THICKER_LINES 现在作用于遮罩，逻辑更清晰
 	#ifdef THICKER_LINES
-		color = texture2D(colortex0, uv_curved).rgb;
 		vec2 offset = pixelSize * vec2(0, 1);
-		color = max(color, texture2D(colortex0, uv_curved + offset).rgb);
+		line_mask = max(line_mask, texture2D(colortex0, uv_curved + offset).a);
 		offset = pixelSize * vec2(0, -1);
-		color = max(color, texture2D(colortex0, uv_curved + offset).rgb);
+		line_mask = max(line_mask, texture2D(colortex0, uv_curved + offset).a);
 		offset = pixelSize * vec2(1, 0);
-		color = max(color, texture2D(colortex0, uv_curved + offset).rgb);
+		line_mask = max(line_mask, texture2D(colortex0, uv_curved + offset).a);
 		offset = pixelSize * vec2(-1, 0);
-		color = max(color, texture2D(colortex0, uv_curved + offset).rgb);
-	#else
-		color = texture2D(colortex0, uv_curved).rgb;
+		line_mask = max(line_mask, texture2D(colortex0, uv_curved + offset).a);
 	#endif
 
-	float colorBrightness = dot(color, vec3(1.0));
-	color = colorBrightness > 0.01 ? color : USER_BG_COLOR;
+	// 使用 mix 函数根据遮罩混合背景和前景颜色
+	color = mix(USER_BG_COLOR, line_color, line_mask);
 
 	if(uv_curved.x < 0.0 || uv_curved.x > 1.0) { color = vec3(0.0); }
 	if(uv_curved.y < 0.0 || uv_curved.y > 1.0) { color = vec3(0.0); }

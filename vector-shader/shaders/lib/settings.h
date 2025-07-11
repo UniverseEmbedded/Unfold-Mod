@@ -19,13 +19,14 @@ vec2 pixelSize = 1.0 / vec2(viewWidth, viewHeight);
 #define MONOCHROME
 #define THICKER_LINES
 #define LINE_COLOR_R 0.0 // [0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0]
-#define LINE_COLOR_G 1.0 // [0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0]
-#define LINE_COLOR_B 0.3 // [0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0]
+#define LINE_COLOR_G 0.0 // [0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0]
+#define LINE_COLOR_B 0.0 // [0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0]
 const vec3 USER_COLOR = vec3(LINE_COLOR_R, LINE_COLOR_G, LINE_COLOR_B);
-#define BG_COLOR_R 0.0 // [0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0]
-#define BG_COLOR_G 1.0 // [0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0]
-#define BG_COLOR_B 0.3 // [0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0]
-#define BG_COLOR_MUL 0.03 // [0.0 0.01 0.02 0.03 0.04 0.05 0.06 0.07 0.08 0.09 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0]
+/* 米黄色 (Beige) - R:0.96, G:0.94, B:0.86 */
+#define BG_COLOR_R 0.94 // [0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0]
+#define BG_COLOR_G 0.90 // [0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0]
+#define BG_COLOR_B 0.54 // [0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0]
+#define BG_COLOR_MUL 1.0 // [0.0 0.01 0.02 0.03 0.04 0.05 0.06 0.07 0.08 0.09 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0]
 const vec3 USER_BG_COLOR = normalize(vec3(BG_COLOR_R, BG_COLOR_G, BG_COLOR_B)) * BG_COLOR_MUL;
 #define LINE_THRESHOLD_CONTRAST 0.1 // [0.0 0.01 0.02 0.03 0.04 0.05 0.06 0.07 0.08 0.09 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0]
 #define LINE_THRESHOLD_DEPTH 0.01 // [0.00 0.01 0.02 0.03 0.04 0.05 0.06 0.07 0.08 0.09 0.1]
