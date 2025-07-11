@@ -192,20 +192,6 @@ public class UnfoldTeleportLogic {
      * @return 瞬移的目标位置 {@code Vec3d}，如果没有合适的瞬移则返回 {@code null}。
      */
     private static Vec3d handleIsometricTeleport(ClientPlayerEntity player, ClientWorld world) {
-//        // 1. 优先处理玩家原地向上跳跃的场景 (这个逻辑仍然有价值，可以快速处理正上方的平台)
-//        if (player.getVelocity().y > 0.1) { // 使用一个略大的阈值避免走路时的小跳动触发
-//            RaycastContext jumpContext = new RaycastContext(
-//                    player.getPos(),
-//                    player.getPos().add(0, MAX_DISTANCE, 0),
-//                    RaycastContext.ShapeType.COLLIDER,
-//                    RaycastContext.FluidHandling.NONE,
-//                    player
-//            );
-//            BlockHitResult hit = world.raycast(jumpContext);
-//            if (isValidHit(hit) && hit.getSide() == Direction.UP && isSafePlatform(world, hit.getBlockPos(), Direction.UP)) {
-//                return Vec3d.ofBottomCenter(hit.getBlockPos().up());
-//            }
-//        }
 
 
         // 2. 实现双辅助线逻辑
