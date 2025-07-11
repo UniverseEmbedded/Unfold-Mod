@@ -11,6 +11,7 @@ import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.Vec3d;
 import org.lwjgl.glfw.GLFW;
+import pama1234.unfold.logic.UnfoldConfig;
 import pama1234.unfold.logic.UnfoldManager;
 import pama1234.unfold.logic.UnfoldMode;
 import pama1234.unfold.logic.UnfoldTeleportLogic;
@@ -18,8 +19,9 @@ import pama1234.unfold.util.ViewDirection;
 
 public class UnfoldModClient implements ClientModInitializer {
     private static KeyBinding toggleKey;
-    // 移除 sneakKey，因为它没有被使用
-    // private static KeyBinding sneakKey;
+    // [新增] 为相机缩放功能添加键位绑定
+    private static KeyBinding zoomOutKey; // 对应键盘 '-' 键
+    private static KeyBinding zoomInKey;  // 对应键盘 '=' 键 (通常是'+')
 
     private static Perspective originalPerspective;
     private static boolean teleportCooldown = false;
@@ -30,11 +32,14 @@ public class UnfoldModClient implements ClientModInitializer {
                 "key.unfold.toggle", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_V, "category.unfold"
         ));
 
-        // 此处获取 sneakKey 的逻辑可以移除，因为它未在后续代码中使用
-        // MinecraftClient client = MinecraftClient.getInstance();
-        // if(client != null && client.options != null) {
-        //     sneakKey = client.options.sneakKey;
-        // }
+        // [新增] 注册缩放键位
+        zoomOutKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+                "key.unfold.zoom_out", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_MINUS, "category.unfold"
+        ));
+        zoomInKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+                "key.unfold.zoom_in", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_EQUAL, "category.unfold"
+        ));
+
 
         ClientTickEvents.END_CLIENT_TICK.register(tickClient -> {
 
@@ -44,6 +49,11 @@ public class UnfoldModClient implements ClientModInitializer {
             }
 
             handleModeToggle(tickClient, player);
+
+            // [新增] 在展开模式下，处理缩放按键
+            if (UnfoldManager.unfolding) {
+                handleZoomKeys(tickClient);
+            }
 
             if (UnfoldManager.unfolding) {
                 if (!teleportCooldown) {
@@ -55,12 +65,34 @@ public class UnfoldModClient implements ClientModInitializer {
                         teleportCooldown = false;
                     }
                 }
-
-                // 【注意】原有的 handlePlayerMovement 似乎只处理水平模式，此处保持不变
                 handlePlayerMovement(tickClient, player);
             }
         });
 
+    }
+
+    /**
+     * [新增] 处理相机缩放的按键输入
+     * @param client 客户端实例
+     */
+    private void handleZoomKeys(MinecraftClient client) {
+        boolean scaleChanged = false;
+        // 检查缩小键 (通常是 '-')
+        while (zoomOutKey.wasPressed()) {
+            UnfoldConfig.changeScale(true); // true表示缩小
+            scaleChanged = true;
+        }
+        // 检查放大键 (通常是 '=')
+        while (zoomInKey.wasPressed()) {
+            UnfoldConfig.changeScale(false); // false表示放大
+            scaleChanged = true;
+        }
+
+        // 如果缩放被改变，向玩家发送提示信息，提供即时反馈
+        if (scaleChanged && client.player != null) {
+            String scaleText = String.format("%.2f", UnfoldConfig.scale);
+            client.player.sendMessage(Text.translatable("unfold.message.scale_changed", scaleText), true);
+        }
     }
 
 
@@ -76,13 +108,9 @@ public class UnfoldModClient implements ClientModInitializer {
             UnfoldManager.unfolding = !UnfoldManager.unfolding;
 
             if (UnfoldManager.unfolding) {
-                // 进入展开模式的逻辑
                 UnfoldManager.currentDirection = ViewDirection.getClosest(player);
-                // 假设您使用了我之前建议的修改，优先判断垂直模式
                 UnfoldManager.currentMode = UnfoldMode.fromPlayerPitch(player.getPitch(), UnfoldManager.currentDirection);
 
-                // 【修改开始】
-                // 现在完全使用中文名称
                 String modeName;
                 switch (UnfoldManager.currentMode) {
                     case VERTICAL:
@@ -98,16 +126,9 @@ public class UnfoldModClient implements ClientModInitializer {
                         modeName = "未知模式";
                         break;
                 }
-
-                // 从 ViewDirection 枚举中获取中文名
                 String directionName = UnfoldManager.currentDirection.chineseName;
-
-                // 构建完整的消息文本
                 String message = String.format("已进入: %s (视角: %s)", modeName, directionName);
-
-                // 发送消息到玩家的聊天栏
                 player.sendMessage(Text.literal(message), false);
-                // 【修改结束】
 
                 UnfoldMod.LOGGER.info("Unfold Mode Activated: {} (Direction: {})", UnfoldManager.currentMode, UnfoldManager.currentDirection.name());
 
@@ -115,7 +136,6 @@ public class UnfoldModClient implements ClientModInitializer {
                 client.options.setPerspective(Perspective.THIRD_PERSON_BACK);
 
             } else {
-                // 退出展开模式的逻辑
                 UnfoldMod.LOGGER.info("Unfold Mode Deactivated");
                 if (originalPerspective != null) {
                     client.options.setPerspective(originalPerspective);

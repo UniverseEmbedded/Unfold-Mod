@@ -1,0 +1,7 @@
+{
+  "key.unfold.toggle": "Toggle Unfold Mode",
+  "key.unfold.zoom_in": "Zoom In",
+  "key.unfold.zoom_out": "Zoom Out",
+  "category.unfold": "Unfold Mod",
+  "unfold.message.scale_changed": "Scale: %s"
+}

@@ -1,0 +1,7 @@
+{
+  "key.unfold.toggle": "切换展开模式",
+  "key.unfold.zoom_in": "放大",
+  "key.unfold.zoom_out": "缩小",
+  "category.unfold": "主体展开模组",
+  "unfold.message.scale_changed": "缩放: %s"
+}

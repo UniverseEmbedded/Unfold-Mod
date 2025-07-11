@@ -26,10 +26,12 @@ public abstract class GameRendererMixin {
     private MinecraftClient client;
 
     private Matrix4f createUnfoldOrthoMatrix() {
-        float scale = UnfoldConfig.SCALE;
+        // [修改] 从 UnfoldConfig.SCALE (常量) 改为 UnfoldConfig.scale (可变字段)
+        float scale = UnfoldConfig.scale;
         float aspectRatio = (float) this.client.getWindow().getFramebufferWidth() / (float) this.client.getWindow().getFramebufferHeight();
         float width = scale * aspectRatio;
         float height = scale;
+        // 使用 MIN_DISTANCE 和 MAX_DISTANCE 来确保渲染范围正确
         return new Matrix4f().setOrtho(-width, width, -height, height, UnfoldConfig.MIN_DISTANCE, UnfoldConfig.MAX_DISTANCE);
     }
 
