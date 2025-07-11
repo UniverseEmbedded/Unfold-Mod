@@ -5,13 +5,13 @@
 	"name": "Unfold Mod",
 	"description": "This is an example description! Tell everyone what your mod is about!",
 	"authors": [
-		"Me!"
+		"pama1234"
 	],
 	"contact": {
-		"homepage": "https://fabricmc.net/",
-		"sources": "https://github.com/FabricMC/fabric-example-mod"
+		"homepage": "https://space.bilibili.com/646050693",
+		"sources": "https://github.com/UniverseEmbedded/Unfold-Mod"
 	},
-	"license": "CC0-1.0",
+	"license": "All rights reserved",
 	"icon": "assets/unfold/icon.png",
 	"environment": "*",
 	"entrypoints": {
