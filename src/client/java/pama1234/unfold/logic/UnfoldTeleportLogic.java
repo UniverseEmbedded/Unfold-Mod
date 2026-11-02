@@ -3,14 +3,10 @@ package pama1234.unfold.logic;
 import net.minecraft.block.ShapeContext;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.world.ClientWorld;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.BlockView;
-import net.minecraft.world.RaycastContext;
 import pama1234.unfold.UnfoldMod;
 import pama1234.unfold.event.PlayerTeleportCallback;
 import pama1234.unfold.util.ProjectionBasis;
@@ -30,6 +26,10 @@ public class UnfoldTeleportLogic {
     private static final double MAX_DISTANCE = 64.0;
     // 一个小的浮点数，用于避免浮点精度问题，例如在计算边缘位置时。
     private static final double EPSILON = 0.01;
+    // 规格 A3：Π 不变量的数值比较容差，只用于比较，不作为允许的位移量。
+    private static final double PROJECTION_TOLERANCE = 1.0e-6;
+    // 规格 A3：展开轴与世界 Y 轴接近垂直的数值判定；此时沿 d 无法改变高度。
+    private static final double LAMBDA_MIN_AXIS_Y = 1.0e-6;
 
     /**
      * 主入口点，在每个客户端Tick（游戏帧）中调用，用于检查并执行可能的瞬移操作。
@@ -85,28 +85,20 @@ public class UnfoldTeleportLogic {
             return null;
         }
 
+        ProjectionBasis basis = ProjectionBasis.of(UnfoldManager.currentDirection);
         // 获取用于垂直方向射线探测的起始点集合。
         // 这些点分布在玩家当前位置的水平面上，略微超出玩家碰撞箱边缘。
         List<Vec3d> origins = getVerticalProbeOrigins(player);
         // 根据玩家的垂直速度方向确定探测方向：向上跳则向上探测，下落则向下探测。
         Direction direction = player.getVelocity().y > 0 ? Direction.UP : Direction.DOWN;
 
-        // 对每个起始点发射射线
+        // 对每个起始点发射射线，逐条使用 LayerRaycaster 的区间证据。
         for (Vec3d origin : origins) {
-            // 创建射线上下文：从起始点向指定方向发射 MAX_DISTANCE 长的射线。
-            // 探测类型为 COLLIDER（实体方块），不处理流体。
-            RaycastContext context = new RaycastContext(origin, origin.add(Vec3d.of(direction.getVector()).multiply(MAX_DISTANCE)),
-                    RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, player);
-            // 执行射线检测。
-            BlockHitResult hit = raycastFirst(world, player, context.getStart(), context.getEnd());
-
-            // 如果射线命中了方块，且该方块上方是安全可站立的平台。
-            if (hit.getType() == HitResult.Type.BLOCK) {
-                BlockPos targetBlock = hit.getBlockPos();
-                if (isSafePlatform(world, targetBlock, direction)) {
-                    // 返回目标方块上方中心点的位置作为瞬移目标。
-                    // player.getX() 和 player.getZ() 保持不变，只改变Y坐标。
-                    return new Vec3d(player.getX(), Vec3d.ofBottomCenter(targetBlock.offset(direction)).y, player.getZ());
+            Vec3d end = origin.add(Vec3d.of(direction.getVector()).multiply(MAX_DISTANCE));
+            for (LayerRaycaster.LayerInterval interval : castLayers(world, player, origin, end)) {
+                Vec3d candidate = tryCandidate(player, world, basis, interval);
+                if (candidate != null) {
+                    return candidate;
                 }
             }
         }
@@ -151,22 +143,32 @@ public class UnfoldTeleportLogic {
     }
 
     /**
-     * 将玩家的当前位置沿着展开轴投影到目标Y平面上，计算出新的瞬移目标位置。
-     * 这确保了玩家在屏幕上的位置保持不变，只改变其深度。
+     * 规格 A3：候选位置只能取 {@code p_desired + λd}，且 Π(p_c) = Π(p_desired) 是硬约束。
      *
-     * @param player       客户端玩家实体。
-     * @param targetBlockY 目标方块的Y坐标。
-     * @param basis        当前视角的唯一投影基（规格 A1）。
-     * @return 计算出的、保持屏幕位置不变的瞬移目标点。
+     * @param player 客户端玩家实体；本 tick 原版移动后的位置即 p_desired。
+     * @param basis  当前视角的唯一投影基。
+     * @param feetY  候选的脚底高度，由层证据形状的顶面给出。
+     * @return 满足投影不变量的候选；d⊥Y（无解）或数值超差时返回 {@code null}。
      */
-    private static Vec3d projectPlayerToTargetY(ClientPlayerEntity player, int targetBlockY, ProjectionBasis basis) {
-        Vec3d playerPos = player.getPos();
-        // 目标站立高度 = 目标方块高度 + 1
-        double targetY = targetBlockY + 1.0;
+    private static Vec3d candidateOnLayer(ClientPlayerEntity player, ProjectionBasis basis, double feetY) {
+        Vec3d desired = player.getPos();
+        double axisY = basis.axis().y;
+        if (Math.abs(axisY) < LAMBDA_MIN_AXIS_Y) {
+            // 规格 A2：水平模式下 d⊥Y，沿展开轴无法改变高度，层内不存在候选。
+            return null;
+        }
+        double lambda = (feetY - desired.y) / axisY;
+        Vec3d candidate = basis.reconstruct(desired, lambda);
 
-        // 规格 A1.5：切层只允许改变 λ。这里把玩家位置沿展开轴移动到目标 Y 平面，
-        // 等价于旧公式 t = (targetY - currentY) / d.y，但由 ProjectionBasis 统一提供。
-        return basis.reconstructAtY(playerPos, targetY);
+        // 规格 A3：投影不变量是硬约束；这里的容差只用于数值比较，不作为允许的位移量。
+        ProjectionBasis.ScreenPos anchor = basis.project(desired);
+        ProjectionBasis.ScreenPos moved = basis.project(candidate);
+        double dr = moved.right() - anchor.right();
+        double du = moved.up() - anchor.up();
+        if (dr * dr + du * du > PROJECTION_TOLERANCE * PROJECTION_TOLERANCE) {
+            return null;
+        }
+        return candidate;
     }
 
     /**
@@ -233,39 +235,47 @@ public class UnfoldTeleportLogic {
         );
 
         // 3. 执行辅助线2（阴影探测），判断是否可以向上瞬移
-        RaycastContext shadowContext = new RaycastContext(shadowProbePoint, shadowProbePoint.subtract(unfoldAxis.multiply(MAX_DISTANCE)), RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, player);
-        BlockHitResult shadowHit = raycastFirst(world, player, shadowContext.getStart(), shadowContext.getEnd());
-
-        // 【修改】根据你的最新指令，设置一个布尔标志位
-        // 只有当辅助线2没有被不同高度的方块遮挡时，才允许向上瞬移
-        boolean canTeleportUp = !(isValidHit(shadowHit) && shadowHit.getBlockPos().getY() != currentStandingY);
+        // 规格 A3：这里同样使用 LayerRaycaster 的区间列表，不再取 first-hit。
+        Vec3d shadowEnd = shadowProbePoint.subtract(unfoldAxis.multiply(MAX_DISTANCE));
+        boolean canTeleportUp = true;
+        for (LayerRaycaster.LayerInterval interval : castLayers(world, player, shadowProbePoint, shadowEnd)) {
+            if (interval.blockPos().getY() != currentStandingY) {
+                canTeleportUp = false;
+                break;
+            }
+        }
 
         // 4. 执行辅助线1（瞬移探测）
 
         // 探测高处
-        // 【修改】增加了对 canTeleportUp 标志的检查
         if (canTeleportUp) {
             Vec3d highProbeStart = pivotPoint.subtract(unfoldAxis.multiply(MAX_DISTANCE));
-            RaycastContext highProbeContext = new RaycastContext(highProbeStart, pivotPoint, RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, player);
-            BlockHitResult highHit = raycastFirst(world, player, highProbeContext.getStart(), highProbeContext.getEnd());
-
-            if (isValidHit(highHit) && highHit.getSide() == Direction.UP) {
-                BlockPos targetBlock = highHit.getBlockPos();
-                if (targetBlock.getY() > currentStandingY && isSafePlatform(world, targetBlock, Direction.UP)) {
-                    return projectPlayerToTargetY(player, targetBlock.getY(), basis);
+            for (LayerRaycaster.LayerInterval interval : castLayers(world, player, highProbeStart, pivotPoint)) {
+                if (interval.side() != Direction.UP) {
+                    continue;
+                }
+                if (interval.blockPos().getY() <= currentStandingY) {
+                    continue;
+                }
+                Vec3d candidate = tryCandidate(player, world, basis, interval);
+                if (candidate != null) {
+                    return candidate;
                 }
             }
         }
 
         // 探测低处（不受辅助线2的影响）
         Vec3d lowProbeEnd = pivotPoint.add(unfoldAxis.multiply(MAX_DISTANCE));
-        RaycastContext lowProbeContext = new RaycastContext(pivotPoint, lowProbeEnd, RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, player);
-        BlockHitResult lowHit = raycastFirst(world, player, lowProbeContext.getStart(), lowProbeContext.getEnd());
-
-        if (isValidHit(lowHit) && lowHit.getSide() == Direction.UP) {
-            BlockPos targetBlock = lowHit.getBlockPos();
-            if (targetBlock.getY() < currentStandingY && isSafePlatform(world, targetBlock, Direction.UP)) {
-                return projectPlayerToTargetY(player, targetBlock.getY(), basis);
+        for (LayerRaycaster.LayerInterval interval : castLayers(world, player, pivotPoint, lowProbeEnd)) {
+            if (interval.side() != Direction.UP) {
+                continue;
+            }
+            if (interval.blockPos().getY() >= currentStandingY) {
+                continue;
+            }
+            Vec3d candidate = tryCandidate(player, world, basis, interval);
+            if (candidate != null) {
+                return candidate;
             }
         }
 
@@ -311,38 +321,44 @@ public class UnfoldTeleportLogic {
     }
 
     /**
-     * 判断一个射线检测结果是否有效（即命中了方块）。
+     * 规格 A3：由 {@link LayerRaycaster} 的区间证据构造候选。
      *
-     * @param hitResult 射线检测结果。
-     * @return 如果结果不为 {@code null} 且类型为 {@link HitResult.Type#BLOCK} 则返回 {@code true}。
+     * 候选不是射线命中点，也不是方块中心：先取该层形状的顶面高度，
+     * 再沿展开轴从 p_desired 重建 p_desired + λd，并检查投影不变量。
      */
-    private static boolean isValidHit(BlockHitResult hitResult) {
-        return hitResult != null && hitResult.getType() == HitResult.Type.BLOCK;
+    private static Vec3d tryCandidate(ClientPlayerEntity player, ClientWorld world, ProjectionBasis basis,
+                                      LayerRaycaster.LayerInterval interval) {
+        BlockPos supportBlock = interval.blockPos();
+        // 规格 A5：isSafePlatform 只作为前置粗筛，最终判定由 isCandidateClear 承担。
+        if (!isSafePlatform(world, supportBlock, Direction.UP)) {
+            return null;
+        }
+        double feetY = layerTopY(interval);
+        Vec3d candidate = candidateOnLayer(player, basis, feetY);
+        if (candidate == null) {
+            return null;
+        }
+        // 候选与原位重合时不构成切层。
+        if (candidate.squaredDistanceTo(player.getPos()) < 1.0e-12) {
+            return null;
+        }
+        return candidate;
     }
 
-    /**
-     * 用 {@link LayerRaycaster} 的区间列表替换原来的 first-hit 取法。
-     *
-     * 本步骤仍只取最近的一个区间，保持旧行为；区间列表本身留给后续候选搜索。
-     * 形状来源与 vanilla `RaycastContext.COLLIDER` 一致：
-     * `getCollisionShape(world, pos, ShapeContext.of(player))`。
-     * 与 vanilla 的边界情况（起点在方块内）未逐例比对，仍按 fail-closed 取面。
-     */
-    private static BlockHitResult raycastFirst(BlockView world, ClientPlayerEntity player, Vec3d start, Vec3d end) {
-        List<LayerRaycaster.LayerInterval> intervals = LayerRaycaster.cast(world, ShapeContext.of(player), start, end);
-        Vec3d delta = end.subtract(start);
-        if (intervals.isEmpty()) {
-            Direction side = delta.lengthSquared() < 1.0e-9
-                    ? Direction.UP
-                    : Direction.getFacing(-delta.x, -delta.y, -delta.z);
-            return BlockHitResult.createMissed(end, side, BlockPos.ofFloored(end));
+    /** 层证据形状在方块顶面的世界高度；非满方块按实际形状取顶。 */
+    private static double layerTopY(LayerRaycaster.LayerInterval interval) {
+        double blockY = interval.blockPos().getY();
+        double top = blockY;
+        for (Box box : interval.shape().getBoundingBoxes()) {
+            top = Math.max(top, blockY + box.maxY);
         }
+        return top;
+    }
 
-        // cast 已按 tEntry 升序排列。
-        LayerRaycaster.LayerInterval first = intervals.get(0);
-        Vec3d dir = delta.normalize();
-        Vec3d hitPos = start.add(dir.multiply(first.tEntry()));
-        return new BlockHitResult(hitPos, first.side(), first.blockPos(), false);
+    /** 用玩家实体对应的 ShapeContext 取得层区间列表（规格 A3：候选证据不用 first-hit）。 */
+    private static List<LayerRaycaster.LayerInterval> castLayers(ClientWorld world, ClientPlayerEntity player,
+                                                                 Vec3d start, Vec3d end) {
+        return LayerRaycaster.cast(world, ShapeContext.of(player), start, end);
     }
 
     /**
@@ -374,12 +390,15 @@ public class UnfoldTeleportLogic {
      * @return 如果找到安全目标则返回目标位置 {@code Vec3d}，否则返回 {@code null}。
      */
     private static Vec3d checkHorizontalJump(ClientPlayerEntity player, ClientWorld world) {
+        ProjectionBasis basis = ProjectionBasis.of(UnfoldManager.currentDirection);
+        Vec3d start = player.getPos();
         // 从玩家当前位置向上发射 MAX_DISTANCE 长的射线。
-        RaycastContext context = new RaycastContext(player.getPos(), player.getPos().add(0, MAX_DISTANCE, 0), RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, player);
-        BlockHitResult hit = raycastFirst(world, player, context.getStart(), context.getEnd());
-        // 如果命中方块且其上方是安全平台，则返回瞬移目标位置。
-        if (isValidHit(hit) && isSafePlatform(world, hit.getBlockPos(), Direction.UP)) {
-            return Vec3d.ofBottomCenter(hit.getBlockPos().up());
+        Vec3d end = start.add(0, MAX_DISTANCE, 0);
+        for (LayerRaycaster.LayerInterval interval : castLayers(world, player, start, end)) {
+            Vec3d candidate = tryCandidate(player, world, basis, interval);
+            if (candidate != null) {
+                return candidate;
+            }
         }
         return null;
     }
@@ -393,6 +412,7 @@ public class UnfoldTeleportLogic {
      * @return 如果找到安全目标则返回目标位置 {@code Vec3d}，否则返回 {@code null}。
      */
     private static Vec3d checkHorizontalSneak(ClientPlayerEntity player, ClientWorld world) {
+        ProjectionBasis basis = ProjectionBasis.of(UnfoldManager.currentDirection);
         // 获取当前展开模式的“深度”轴方向（通常是与玩家视角相对的方向）。
         Vec3d unfoldAxis = getUnfoldAxisDirection(UnfoldManager.currentDirection);
         Vec3d origin = player.getPos();
@@ -400,21 +420,23 @@ public class UnfoldTeleportLogic {
         Vec3d rayDir = unfoldAxis.negate();
 
         // 1. 先向后方发射短射线，检测玩家后方是否有方块（判断是否站在边缘）。
-        RaycastContext context = new RaycastContext(origin, origin.add(rayDir.multiply(player.getWidth() * 2)), RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, player);
-        BlockHitResult hit = raycastFirst(world, player, context.getStart(), context.getEnd());
-        // 如果没有命中方块，说明后方是空气，不是边缘下落，不触发瞬移。
-        if (hit.getType() != HitResult.Type.BLOCK) return null;
+        Vec3d backEnd = origin.add(rayDir.multiply(player.getWidth() * 2));
+        List<LayerRaycaster.LayerInterval> backLayers = castLayers(world, player, origin, backEnd);
+        // 如果没有层证据，说明后方是空气，不是边缘下落，不触发瞬移。
+        if (backLayers.isEmpty()) {
+            return null;
+        }
 
-        // 计算一个位于命中方块后方，略微进入空气的位置，作为第二条射线的起点。
+        // 计算一个位于最近层之后，略微进入空气的位置，作为第二条射线的起点。
         // 这模拟了玩家从边缘“跌落”到空气中。
-        Vec3d edgeAirPos = hit.getPos().add(rayDir.multiply(EPSILON));
+        Vec3d edgeAirPos = origin.add(rayDir.multiply(backLayers.get(0).tEntry())).add(rayDir.multiply(EPSILON));
 
-        // 2. 从这个“边缘空气位置”垂直向下发射长射线，寻找下方的平台。
-        context = new RaycastContext(edgeAirPos, edgeAirPos.add(0, -MAX_DISTANCE, 0), RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, player);
-        hit = raycastFirst(world, player, context.getStart(), context.getEnd());
-        // 如果命中方块且其上方是安全平台，则返回瞬移目标位置。
-        if (isValidHit(hit) && isSafePlatform(world, hit.getBlockPos(), Direction.UP)) {
-            return Vec3d.ofBottomCenter(hit.getBlockPos().up());
+        // 2. 从这个“边缘空气位置”垂直向下发射长射线，逐层寻找候选。
+        for (LayerRaycaster.LayerInterval interval : castLayers(world, player, edgeAirPos, edgeAirPos.add(0, -MAX_DISTANCE, 0))) {
+            Vec3d candidate = tryCandidate(player, world, basis, interval);
+            if (candidate != null) {
+                return candidate;
+            }
         }
         return null;
     }
@@ -462,37 +484,6 @@ public class UnfoldTeleportLogic {
     }
 
     /**
-     * 在斜向模式下，从玩家身体周围发射四条射线，沿着展开轴方向探测方块。
-     * 这些射线用于识别视觉上重叠的平台，无论是高于还是低于玩家。
-     *
-     * @param player     客户端玩家实体。
-     * @param world      客户端世界。
-     * @param unfoldAxis 当前等轴测视图的“深度”方向向量。
-     * @return 包含四条射线检测结果的 {@code List<BlockHitResult>}。
-     */
-    private static List<BlockHitResult> castIsometricProbes(ClientPlayerEntity player, ClientWorld world, Vec3d unfoldAxis) {
-        List<BlockHitResult> results = new ArrayList<>();
-        Vec3d center = player.getPos(); // 玩家的中心位置。
-        // 玩家宽度的一半，减去一个小的偏移量 EPSILON，使射线从碰撞箱内部稍微开始，更精确地探测边缘。
-        float hw = player.getWidth() / 2f - (float) EPSILON;
-
-        // 定义四条射线的起始点，位于玩家当前Y平面上，大致对应玩家碰撞箱的四个角。
-        Vec3d[] origins = {
-                center.add(0, 0, -hw), // 玩家Z轴负方向
-                center.add(0, 0, hw),  // 玩家Z轴正方向
-                center.add(-hw, 0, 0), // 玩家X轴负方向
-                center.add(hw, 0, 0)   // 玩家X轴正方向
-        };
-
-        // 对每个起始点发射射线，方向为 unfoldAxis，长度为 MAX_DISTANCE。
-        for (Vec3d origin : origins) {
-            RaycastContext context = new RaycastContext(origin, origin.add(unfoldAxis.multiply(MAX_DISTANCE)), RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, player);
-            results.add(raycastFirst(world, player, context.getStart(), context.getEnd()));
-        }
-        return results;
-    }
-
-    /**
      * 根据当前的视角方向（{@link ViewDirection}）取得展开模式下的“深度”轴方向向量。
      * 规格 A1：这里只为兼容旧调用保留，实际的 d 由 {@link ProjectionBasis} 统一推导。
      *
@@ -524,38 +515,19 @@ public class UnfoldTeleportLogic {
         float playerWidth = player.getWidth();
         // 射线起点稍微领先于玩家，以确保能探测到前方的平台。
         Vec3d origin = player.getPos().add(moveDir.multiply(playerWidth / 2 + 0.1));
+        BlockPos currentStandingBlock = player.getBlockPos().down();
 
-        // 3. 发射垂直向下的探测射线。
-        // 射线从玩家前方略微偏移的位置，纯粹向下探测。
-        RaycastContext context = new RaycastContext(
-                origin,
-                origin.add(0, -MAX_DISTANCE, 0), // 纯粹向下探测，寻找下方平台。
-                RaycastContext.ShapeType.COLLIDER,
-                RaycastContext.FluidHandling.NONE,
-                player
-        );
-
-        BlockHitResult hit = raycastFirst(world, player, context.getStart(), context.getEnd());
-
-        // 如果射线命中了方块。
-        if (isValidHit(hit)) {
-            BlockPos targetBlock = hit.getBlockPos();
-
-            // 【已修复】使用最直接可靠的方法：player.getBlockPos().down()
-            // 获取玩家当前站立的方块位置（如果玩家在地面上）。
-            // 注意：当玩家在空中时，这个值可能代表玩家下方的空气方块，而不是实际站立的方块。
-            BlockPos currentStandingBlock = player.getBlockPos().down();
-
+        // 3. 逐层检查垂直向下的区间证据（规格 A3，不取 first-hit）。
+        ProjectionBasis basis = ProjectionBasis.of(UnfoldManager.currentDirection);
+        for (LayerRaycaster.LayerInterval interval : castLayers(world, player, origin, origin.add(0, -MAX_DISTANCE, 0))) {
             // 检查找到的平台是否与玩家当前站立的平台不同（避免瞬移到同一个方块上）。
-            // 并且，如果玩家正下方没有方块（即玩家确实悬空），此判断也应视为"新平台"。
-            boolean isNewPlatform = !targetBlock.equals(currentStandingBlock);
-
-            // 如果目标平台是安全可站立的，并且它是一个新平台（与当前位置不同）。
-            if (isSafePlatform(world, targetBlock, Direction.UP) && isNewPlatform) {
-                // 瞬移目标是：保持被击中平台的X和Z，但Y值是平台上方。
-                Vec3d targetPos = Vec3d.ofBottomCenter(targetBlock.up());
-                UnfoldMod.LOGGER.info("Air strafe opportunity found at {}", targetPos);
-                return targetPos;
+            if (interval.blockPos().equals(currentStandingBlock)) {
+                continue;
+            }
+            Vec3d candidate = tryCandidate(player, world, basis, interval);
+            if (candidate != null) {
+                UnfoldMod.LOGGER.info("Air strafe opportunity found at {}", candidate);
+                return candidate;
             }
         }
 
