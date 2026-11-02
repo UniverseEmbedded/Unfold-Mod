@@ -11,6 +11,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.ModifyVariable;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import pama1234.unfold.logic.UnfoldManager;
+import pama1234.unfold.util.ProjectionBasis;
 
 @Mixin(Camera.class)
 public abstract class CameraMixin {
@@ -47,9 +48,11 @@ public abstract class CameraMixin {
     @Inject(method = "update", at = @At("TAIL"))
     private void unfold_forceCamera(BlockView area, Entity focusedEntity, boolean thirdPerson, boolean inverseView, float tickDelta, CallbackInfo ci) {
         if (UnfoldManager.unfolding && UnfoldManager.currentDirection != null) {
+            // 规格 A1：相机角度也由唯一投影基提供，不再直接读枚举字段。
+            ProjectionBasis basis = ProjectionBasis.of(UnfoldManager.currentDirection);
             // 强制设置摄像机到预设的展开角度
-            this.yaw = UnfoldManager.currentDirection.yaw;
-            this.pitch = UnfoldManager.currentDirection.pitch;
+            this.yaw = basis.yawDegrees();
+            this.pitch = basis.pitchDegrees();
         }
     }
 

@@ -11,6 +11,7 @@ import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.RaycastContext;
 import pama1234.unfold.UnfoldMod;
 import pama1234.unfold.event.PlayerTeleportCallback;
+import pama1234.unfold.util.ProjectionBasis;
 import pama1234.unfold.util.ViewDirection;
 
 import java.util.ArrayList;
@@ -153,34 +154,17 @@ public class UnfoldTeleportLogic {
      *
      * @param player       客户端玩家实体。
      * @param targetBlockY 目标方块的Y坐标。
-     * @param unfoldAxis   当前的展开轴向量。
+     * @param basis        当前视角的唯一投影基（规格 A1）。
      * @return 计算出的、保持屏幕位置不变的瞬移目标点。
      */
-    private static Vec3d projectPlayerToTargetY(ClientPlayerEntity player, int targetBlockY, Vec3d unfoldAxis) {
+    private static Vec3d projectPlayerToTargetY(ClientPlayerEntity player, int targetBlockY, ProjectionBasis basis) {
         Vec3d playerPos = player.getPos();
-        double currentY = playerPos.y;
         // 目标站立高度 = 目标方块高度 + 1
         double targetY = targetBlockY + 1.0;
 
-        // 展开轴的Y分量
-        double unfoldAxisY = unfoldAxis.y;
-
-        // 防止除以零的边缘情况（虽然在斜角模式下几乎不可能发生）
-        if (Math.abs(unfoldAxisY) < EPSILON) {
-            return new Vec3d(playerPos.x, targetY, playerPos.z);
-        }
-
-        // 计算投影所需的距离 't'
-        // 公式: targetY = currentY + t * unfoldAxisY
-        // -> t = (targetY - currentY) / unfoldAxisY
-        double t = (targetY - currentY) / unfoldAxisY;
-
-        // 根据 't' 计算新的 X 和 Z 坐标
-        // newPos = currentPos + t * unfoldAxis
-        double newX = playerPos.x + t * unfoldAxis.x;
-        double newZ = playerPos.z + t * unfoldAxis.z;
-
-        return new Vec3d(newX, targetY, newZ);
+        // 规格 A1.5：切层只允许改变 λ。这里把玩家位置沿展开轴移动到目标 Y 平面，
+        // 等价于旧公式 t = (targetY - currentY) / d.y，但由 ProjectionBasis 统一提供。
+        return basis.reconstructAtY(playerPos, targetY);
     }
 
     /**
@@ -195,7 +179,9 @@ public class UnfoldTeleportLogic {
 
 
         // 2. 实现双辅助线逻辑
-        Vec3d unfoldAxis = getUnfoldAxisDirection(UnfoldManager.currentDirection);
+        // 规格 A1：展开轴、屏幕基与 λ 都从同一个 ProjectionBasis 取得，不再单独推导。
+        ProjectionBasis basis = ProjectionBasis.of(UnfoldManager.currentDirection);
+        Vec3d unfoldAxis = basis.axis();
         BlockPos currentStandingBlockPos = player.getBlockPos().down();
         int currentStandingY = world.isAir(currentStandingBlockPos) ? -1 : currentStandingBlockPos.getY();
         float hw = player.getWidth() / 2f;
@@ -264,7 +250,7 @@ public class UnfoldTeleportLogic {
             if (isValidHit(highHit) && highHit.getSide() == Direction.UP) {
                 BlockPos targetBlock = highHit.getBlockPos();
                 if (targetBlock.getY() > currentStandingY && isSafePlatform(world, targetBlock, Direction.UP)) {
-                    return projectPlayerToTargetY(player, targetBlock.getY(), unfoldAxis);
+                    return projectPlayerToTargetY(player, targetBlock.getY(), basis);
                 }
             }
         }
@@ -277,7 +263,7 @@ public class UnfoldTeleportLogic {
         if (isValidHit(lowHit) && lowHit.getSide() == Direction.UP) {
             BlockPos targetBlock = lowHit.getBlockPos();
             if (targetBlock.getY() < currentStandingY && isSafePlatform(world, targetBlock, Direction.UP)) {
-                return projectPlayerToTargetY(player, targetBlock.getY(), unfoldAxis);
+                return projectPlayerToTargetY(player, targetBlock.getY(), basis);
             }
         }
 
@@ -480,23 +466,14 @@ public class UnfoldTeleportLogic {
     }
 
     /**
-     * 根据当前的视角方向（{@link ViewDirection}）计算展开模式下的“深度”轴方向向量。
-     * 这个向量指向摄像机所看向的“深处”，考虑了俯仰角和偏航角。
+     * 根据当前的视角方向（{@link ViewDirection}）取得展开模式下的“深度”轴方向向量。
+     * 规格 A1：这里只为兼容旧调用保留，实际的 d 由 {@link ProjectionBasis} 统一推导。
      *
      * @param viewDirection 当前的固定视角方向。
      * @return 标准化后的三维向量，表示展开模式的深度轴。
      */
     private static Vec3d getUnfoldAxisDirection(ViewDirection viewDirection) {
-        // 将偏航角和俯仰角转换为弧度。
-        float yawRad = viewDirection.yaw * (float) (Math.PI / 180.0);
-        float pitchRad = viewDirection.pitch * (float) (Math.PI / 180.0);
-        // 根据球坐标系公式计算出三维方向向量。
-        // 注意：Minecraft 的偏航角和坐标系与标准有所不同，这里需要适配。
-        double x = -Math.sin(yawRad) * Math.cos(pitchRad);
-        double y = -Math.sin(pitchRad);
-        double z = Math.cos(yawRad) * Math.cos(pitchRad);
-        // 返回标准化后的向量。
-        return new Vec3d(x, y, z).normalize();
+        return ProjectionBasis.of(viewDirection).axis();
     }
 
     /**

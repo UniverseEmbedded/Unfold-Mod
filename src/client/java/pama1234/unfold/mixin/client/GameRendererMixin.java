@@ -17,6 +17,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.ModifyArg;
 import pama1234.unfold.logic.UnfoldConfig;
 import pama1234.unfold.logic.UnfoldManager;
+import pama1234.unfold.util.ProjectionBasis;
 
 @Mixin(GameRenderer.class)
 public abstract class GameRendererMixin {
@@ -60,8 +61,12 @@ public abstract class GameRendererMixin {
     )
     private Quaternionf modifyCameraRotation(Quaternionf original, @Local(argsOnly = true) RenderTickCounter tickCounter) {
         if (UnfoldManager.unfolding && this.client.player != null) {
-            float targetYaw = UnfoldManager.currentDirection.yaw;
-            float targetPitch = UnfoldManager.currentDirection.pitch;
+            // 规格 A1：相机旋转所用的角度从唯一投影基取得。
+            // [推断] 下面的 rotationXYZ(pitch, yaw + 180) 是既有渲染约定，本步骤未改动它的取向；
+            // 它与 A1 的 Π 是否完全一致，需要运行时比对相机成像后再确认。
+            ProjectionBasis basis = ProjectionBasis.of(UnfoldManager.currentDirection);
+            float targetYaw = basis.yawDegrees();
+            float targetPitch = basis.pitchDegrees();
             float pitchRad = targetPitch * MathHelper.RADIANS_PER_DEGREE;
             float yawRad = (targetYaw + 180.0f) * MathHelper.RADIANS_PER_DEGREE;
             return new Quaternionf().rotationXYZ(pitchRad, yawRad, 0.0f);
