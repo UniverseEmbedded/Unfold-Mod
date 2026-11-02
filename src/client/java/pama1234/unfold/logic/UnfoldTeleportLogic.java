@@ -8,6 +8,7 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.BlockView;
 import net.minecraft.world.RaycastContext;
 import pama1234.unfold.UnfoldMod;
 import pama1234.unfold.event.PlayerTeleportCallback;
@@ -96,7 +97,7 @@ public class UnfoldTeleportLogic {
             RaycastContext context = new RaycastContext(origin, origin.add(Vec3d.of(direction.getVector()).multiply(MAX_DISTANCE)),
                     RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, player);
             // 执行射线检测。
-            BlockHitResult hit = world.raycast(context);
+            BlockHitResult hit = raycastFirst(world, context.getStart(), context.getEnd());
 
             // 如果射线命中了方块，且该方块上方是安全可站立的平台。
             if (hit.getType() == HitResult.Type.BLOCK) {
@@ -232,7 +233,7 @@ public class UnfoldTeleportLogic {
 
         // 3. 执行辅助线2（阴影探测），判断是否可以向上瞬移
         RaycastContext shadowContext = new RaycastContext(shadowProbePoint, shadowProbePoint.subtract(unfoldAxis.multiply(MAX_DISTANCE)), RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, player);
-        BlockHitResult shadowHit = world.raycast(shadowContext);
+        BlockHitResult shadowHit = raycastFirst(world, shadowContext.getStart(), shadowContext.getEnd());
 
         // 【修改】根据你的最新指令，设置一个布尔标志位
         // 只有当辅助线2没有被不同高度的方块遮挡时，才允许向上瞬移
@@ -245,7 +246,7 @@ public class UnfoldTeleportLogic {
         if (canTeleportUp) {
             Vec3d highProbeStart = pivotPoint.subtract(unfoldAxis.multiply(MAX_DISTANCE));
             RaycastContext highProbeContext = new RaycastContext(highProbeStart, pivotPoint, RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, player);
-            BlockHitResult highHit = world.raycast(highProbeContext);
+            BlockHitResult highHit = raycastFirst(world, highProbeContext.getStart(), highProbeContext.getEnd());
 
             if (isValidHit(highHit) && highHit.getSide() == Direction.UP) {
                 BlockPos targetBlock = highHit.getBlockPos();
@@ -258,7 +259,7 @@ public class UnfoldTeleportLogic {
         // 探测低处（不受辅助线2的影响）
         Vec3d lowProbeEnd = pivotPoint.add(unfoldAxis.multiply(MAX_DISTANCE));
         RaycastContext lowProbeContext = new RaycastContext(pivotPoint, lowProbeEnd, RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, player);
-        BlockHitResult lowHit = world.raycast(lowProbeContext);
+        BlockHitResult lowHit = raycastFirst(world, lowProbeContext.getStart(), lowProbeContext.getEnd());
 
         if (isValidHit(lowHit) && lowHit.getSide() == Direction.UP) {
             BlockPos targetBlock = lowHit.getBlockPos();
@@ -319,6 +320,30 @@ public class UnfoldTeleportLogic {
     }
 
     /**
+     * 用 {@link LayerRaycaster} 的区间列表替换原来的 first-hit 取法。
+     *
+     * 本步骤仍只取最近的一个区间，保持旧行为；区间列表本身留给后续候选搜索。
+     * [推断] 这里按 COLLIDER 形状重建 BlockHitResult，面方向由 slab 进入轴确定，
+     * 与 vanilla raycast 的边界情况（起点在方块内）未逐例比对。
+     */
+    private static BlockHitResult raycastFirst(BlockView world, Vec3d start, Vec3d end) {
+        List<LayerRaycaster.LayerInterval> intervals = LayerRaycaster.cast(world, start, end);
+        Vec3d delta = end.subtract(start);
+        if (intervals.isEmpty()) {
+            Direction side = delta.lengthSquared() < 1.0e-9
+                    ? Direction.UP
+                    : Direction.getFacing(-delta.x, -delta.y, -delta.z);
+            return BlockHitResult.createMissed(end, side, BlockPos.ofFloored(end));
+        }
+
+        // cast 已按 tEntry 升序排列。
+        LayerRaycaster.LayerInterval first = intervals.get(0);
+        Vec3d dir = delta.normalize();
+        Vec3d hitPos = start.add(dir.multiply(first.tEntry()));
+        return new BlockHitResult(hitPos, first.side(), first.blockPos(), false);
+    }
+
+    /**
      * 获取垂直模式下用于射线探测的起始点列表。
      * 这些点围绕玩家水平中心的四个方向，略微向外偏移，以确保能探测到周围的方块。
      *
@@ -349,7 +374,7 @@ public class UnfoldTeleportLogic {
     private static Vec3d checkHorizontalJump(ClientPlayerEntity player, ClientWorld world) {
         // 从玩家当前位置向上发射 MAX_DISTANCE 长的射线。
         RaycastContext context = new RaycastContext(player.getPos(), player.getPos().add(0, MAX_DISTANCE, 0), RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, player);
-        BlockHitResult hit = world.raycast(context);
+        BlockHitResult hit = raycastFirst(world, context.getStart(), context.getEnd());
         // 如果命中方块且其上方是安全平台，则返回瞬移目标位置。
         if (isValidHit(hit) && isSafePlatform(world, hit.getBlockPos(), Direction.UP)) {
             return Vec3d.ofBottomCenter(hit.getBlockPos().up());
@@ -374,7 +399,7 @@ public class UnfoldTeleportLogic {
 
         // 1. 先向后方发射短射线，检测玩家后方是否有方块（判断是否站在边缘）。
         RaycastContext context = new RaycastContext(origin, origin.add(rayDir.multiply(player.getWidth() * 2)), RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, player);
-        BlockHitResult hit = world.raycast(context);
+        BlockHitResult hit = raycastFirst(world, context.getStart(), context.getEnd());
         // 如果没有命中方块，说明后方是空气，不是边缘下落，不触发瞬移。
         if (hit.getType() != HitResult.Type.BLOCK) return null;
 
@@ -384,7 +409,7 @@ public class UnfoldTeleportLogic {
 
         // 2. 从这个“边缘空气位置”垂直向下发射长射线，寻找下方的平台。
         context = new RaycastContext(edgeAirPos, edgeAirPos.add(0, -MAX_DISTANCE, 0), RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, player);
-        hit = world.raycast(context);
+        hit = raycastFirst(world, context.getStart(), context.getEnd());
         // 如果命中方块且其上方是安全平台，则返回瞬移目标位置。
         if (isValidHit(hit) && isSafePlatform(world, hit.getBlockPos(), Direction.UP)) {
             return Vec3d.ofBottomCenter(hit.getBlockPos().up());
@@ -460,7 +485,7 @@ public class UnfoldTeleportLogic {
         // 对每个起始点发射射线，方向为 unfoldAxis，长度为 MAX_DISTANCE。
         for (Vec3d origin : origins) {
             RaycastContext context = new RaycastContext(origin, origin.add(unfoldAxis.multiply(MAX_DISTANCE)), RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, player);
-            results.add(world.raycast(context));
+            results.add(raycastFirst(world, context.getStart(), context.getEnd()));
         }
         return results;
     }
@@ -508,7 +533,7 @@ public class UnfoldTeleportLogic {
                 player
         );
 
-        BlockHitResult hit = world.raycast(context);
+        BlockHitResult hit = raycastFirst(world, context.getStart(), context.getEnd());
 
         // 如果射线命中了方块。
         if (isValidHit(hit)) {
