@@ -1,6 +1,7 @@
 package pama1234.unfold.logic;
 
 import net.minecraft.block.BlockState;
+import net.minecraft.block.ShapeContext;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Direction;
@@ -17,11 +18,13 @@ import java.util.List;
  * 沿射线做方块 DDA 遍历，枚举每种 COLLIDER 形状的全部包围盒交点区间。
  *
  * 依据：`Unfold后端与几何算法规格-2026-11-03.md` A1/A3。
- * 本类只输出几何区间，不做候选搜索、不做安全判定、不读实体状态。
+ * 本类只输出几何区间，不做候选搜索、不做安全判定。
  *
- * [推断] 以下 API 签名按 Yarn 1.21.5 理解：`BlockState#getColliderShape()`、
- * `VoxelShape#getBoundingBoxes()`、`Box#offset(Vec3i)`。
- * 附件源码是 1.21.11 NeoForge，版本不一致，未编译验证。
+ * 已核对本机 Gradle 缓存中的 1.21.5 yarn 产物
+ * `...\minecraft-merged-1.21.5-net.fabricmc.yarn.1_21_5.1.21.5+build.1-v2.jar`：
+ * 1.21.5 没有 `BlockState#getColliderShape()`；vanilla `RaycastContext.COLLIDER`
+ * 实际调用 `AbstractBlockState#getCollisionShape(BlockView, BlockPos, ShapeContext)`。
+ * `VoxelShape#getBoundingBoxes()`、`Box#offset(BlockPos)` 与调用一致。
  */
 public final class LayerRaycaster {
 
@@ -43,20 +46,20 @@ public final class LayerRaycaster {
     }
 
     /** 从 start 到 end 发射一条射线，返回按 tEntry 升序排列的区间。 */
-    public static List<LayerInterval> cast(BlockView world, Vec3d start, Vec3d end) {
+    public static List<LayerInterval> cast(BlockView world, ShapeContext context, Vec3d start, Vec3d end) {
         Vec3d delta = end.subtract(start);
         double length = delta.length();
         if (length < EPSILON) {
             return List.of();
         }
-        return cast(world, start, delta.multiply(1.0 / length), length);
+        return cast(world, context, start, delta.multiply(1.0 / length), length);
     }
 
     /**
      * 沿单位方向 direction 发射射线，最远 maxDistance。
      * direction 不要求预先归一化。
      */
-    public static List<LayerInterval> cast(BlockView world, Vec3d start, Vec3d direction, double maxDistance) {
+    public static List<LayerInterval> cast(BlockView world, ShapeContext context, Vec3d start, Vec3d direction, double maxDistance) {
         Vec3d dir = direction.normalize();
         if (dir.lengthSquared() < EPSILON || maxDistance <= 0.0) {
             return List.of();
@@ -84,7 +87,7 @@ public final class LayerRaycaster {
         while (t <= maxDistance) {
             BlockPos pos = new BlockPos(cellX, cellY, cellZ);
             BlockState state = world.getBlockState(pos);
-            VoxelShape shape = state.getColliderShape();
+            VoxelShape shape = state.getCollisionShape(world, pos, context);
 
             if (!shape.isEmpty()) {
                 for (Box box : shape.getBoundingBoxes()) {

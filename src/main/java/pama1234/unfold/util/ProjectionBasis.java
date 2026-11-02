@@ -15,13 +15,14 @@ import net.minecraft.util.math.Vec3d;
 public final class ProjectionBasis {
 
     /**
-     * 8 个斜角预设当前共用的俯仰角。
+     * 8 个斜角预设共用的俯仰角 = arctan(1/√2) 的标准等轴测角。
      *
-     * 规格 A1 的精确值是 arctan(1/√2) ≈ 35.26438968°，但现有 ViewDirection 使用 35.26。
-     * 本步骤只做统一，不改相机角度，因此保留原值。改用精确值会轻微改变相机朝向，
-     * 需要先有运行时验证再决定（[推断]，未验证）。
+     * 来源判定：初始提交 `41c4a54 init`（2025-07-09）直接手写 35.26；
+     * 仓库与文档中没有“从游戏实测得到”的记录。Y端71-B L556 与 Y端70-B L9471
+     * 都把该角度写作 arctan(1/√2) ≈ 35.26438968° 的近似值。
+     * 因此按手写近似处理，改用精确值 35.26438968；与原值相差约 0.0044°。
      */
-    public static final float ISO_PITCH_DEGREES = 35.26f;
+    public static final float ISO_PITCH_DEGREES = 35.26438968f;
 
     private static final double DEG_TO_RAD = Math.PI / 180.0;
     private static final double EPSILON = 1.0e-9;
