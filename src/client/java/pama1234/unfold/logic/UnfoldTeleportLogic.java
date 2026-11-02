@@ -3,6 +3,7 @@ package pama1234.unfold.logic;
 import net.minecraft.block.ShapeContext;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.world.ClientWorld;
+import net.minecraft.util.PlayerInput;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Direction;
@@ -34,6 +35,10 @@ public class UnfoldTeleportLogic {
     private static final double LAMBDA_MIN_AXIS_Y = 1.0e-6;
     // 规格 A5：脚底与支撑面高度的数值比较容差，只用于比较。
     private static final double SURFACE_TOLERANCE = 1.0e-4;
+    // 规格 A4：无屏幕方向输入时，判定“原版没有投影位移”的数值阈值。
+    private static final double VANILLA_DELTA_EPSILON = 1.0e-6;
+    // 规格 A4：有输入时，原版投影位移在期望方向上的最小进度（[推断]，规格未给幅度）。
+    private static final double VANILLA_PROGRESS_EPSILON = 1.0e-4;
 
     /**
      * 主入口点，在每个客户端Tick（游戏帧）中调用，用于检查并执行可能的瞬移操作。
@@ -45,6 +50,13 @@ public class UnfoldTeleportLogic {
     public static boolean checkAndPerformTeleport(ClientPlayerEntity player) {
         // 如果未处于展开模式，或者玩家正在飞行（例如创造模式飞行），则不执行瞬移。
         if (!UnfoldManager.unfolding || player.getAbilities().flying) {
+            return false;
+        }
+
+        // 规格 A4：Vanilla 优先。本方法在 END_CLIENT_TICK 调用，
+        // 玩家位置已包含本 tick 的 Vanilla 移动与碰撞结果。
+        ProjectionBasis basis = ProjectionBasis.of(UnfoldManager.currentDirection);
+        if (vanillaMeetsDesiredMotion(player, basis)) {
             return false;
         }
 
@@ -72,6 +84,41 @@ public class UnfoldTeleportLogic {
             return true;
         }
         return false;
+    }
+
+    /**
+     * 规格 A4：判断本 tick 的 Vanilla 移动是否已经完成期望的屏幕位移。
+     *
+     * 依据是实际碰撞处理后的位置变化（上一 tick 结束位置到当前位置），而不是按键是否按下。
+     * 返回 {@code true} 时完全不启动展开逻辑，保留 Vanilla 结果。
+     *
+     * [推断] 规格未给出期望投影位移的幅度，这里只比较屏幕位移的方向与进度：
+     * 有屏幕方向输入时，原版投影位移在期望方向上的分量达到阈值即视为完成；
+     * 没有屏幕方向输入时，只有原版投影位移本身为零才视为完成，
+     * 因此重力、击退等非输入位移仍会进入候选搜索（不会因此把玩家留在原地）。
+     */
+    private static boolean vanillaMeetsDesiredMotion(ClientPlayerEntity player, ProjectionBasis basis) {
+        Vec3d previous = UnfoldManager.lastTickPosition;
+        if (previous == null) {
+            return false;
+        }
+        ProjectionBasis.ScreenPos vanilla = basis.project(player.getPos().subtract(previous));
+
+        PlayerInput input = player.input.playerInput;
+        double right = 0.0;
+        double up = 0.0;
+        if (input.forward()) up += 1.0;
+        if (input.backward()) up -= 1.0;
+        if (input.right()) right += 1.0; // [推断] e_r 正负尚未与相机左右在运行时比对
+        if (input.left()) right -= 1.0;
+
+        double desiredLength = Math.sqrt(right * right + up * up);
+        if (desiredLength < 1.0e-9) {
+            double projectedSq = vanilla.right() * vanilla.right() + vanilla.up() * vanilla.up();
+            return projectedSq <= VANILLA_DELTA_EPSILON * VANILLA_DELTA_EPSILON;
+        }
+        double progress = (vanilla.right() * right + vanilla.up() * up) / desiredLength;
+        return progress >= VANILLA_PROGRESS_EPSILON;
     }
 
     /**

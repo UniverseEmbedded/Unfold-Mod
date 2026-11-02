@@ -1,5 +1,6 @@
 package pama1234.unfold.logic;
 
+import net.minecraft.util.math.Vec3d;
 import pama1234.unfold.util.ViewDirection;
 
 public class UnfoldManager {
@@ -9,4 +10,8 @@ public class UnfoldManager {
      * 【新增】用于存储当前所处的展开模式
      */
     public static UnfoldMode currentMode = UnfoldMode.ISOMETRIC;
+    /**
+     * 规格 A4：上一 tick 结束时的玩家位置（含瞬移结果），用于比较原版移动的实际投影位移。
+     */
+    public static Vec3d lastTickPosition = null;
 }

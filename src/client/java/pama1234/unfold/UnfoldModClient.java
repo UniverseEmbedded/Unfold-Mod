@@ -67,6 +67,9 @@ public class UnfoldModClient implements ClientModInitializer {
                 }
                 handlePlayerMovement(tickClient, player);
             }
+
+            // 规格 A4：记录本 tick 结束时的位置（含瞬移结果），供下一 tick 比较原版位移。
+            UnfoldManager.lastTickPosition = player.getPos();
         });
 
     }
