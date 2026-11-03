@@ -61,7 +61,7 @@ e_r = normalize( d × e_u )
 ```
 
 - `e_u` 是屏幕上的方向。当 d∥Y 时上式退化（分母为零），实现改取该 yaw 对应的水平前向。（已证实：代码分支；该退化选择本身是推断。）
-- `e_r` 就是相机的屏幕右方向，不需要反号。依据是 1.21.5 的 `Camera.setRotation = rotationYXZ(π − yaw, −pitch, 0)`、`GameRenderer` 取共轭构造视图矩阵（纯旋转、无镜像），可推出 `R·(1,0,0) = (−cos yaw, 0, −sin yaw) = d × e_u`。（已证实：字节码静态推导。）该结论没有与实机画面逐帧比对过。（推断）
+- `e_r` 就是相机的屏幕右方向，不需要反号。依据是 1.21.5 的 `Camera.setRotation = rotationYXZ(π − yaw, −pitch, 0)`、`GameRenderer` 取共轭构造视图矩阵（纯旋转、无镜像），可推出 `R·(1,0,0) = (−cos yaw, 0, −sin yaw) = d × e_u`。（已证实：字节码静态推导。）`e_u` 同理等于 `R·(0,1,0)`；`CameraMixin` 每帧把相机角度强制为基的值并取消外部 `setRotation`，`GameRendererMixin` 构造的视图旋转与 vanilla 共轭表达式等价，因此“基就是相机基”在静态层面闭合。实机画面未逐帧比对，只影响观感，不影响符号。（已证实：代码与代数；观感为推断）
 
 由构造可直接得到 `e_u·d = 0`、`e_r·d = 0`，因此 `Π(d) = (0,0)`。（已证实：内积展开。）
 
@@ -217,31 +217,65 @@ p(λ) = anchor + λ d
 | `REVERSE_CUT_RADIUS` | `2.5` | `UnfoldTeleportLogic` | 同层反向重穿的抑制半径 | 推断（代码注释自标） |
 | `LATERAL_LOOKAHEAD` | `0.2` | `UnfoldTeleportLogic` | 触发前瞻与候选处横向余量 | 值已证实；0.2 的取值推断 |
 | `EPSILON`（几何） | `0.01` | `UnfoldTeleportLogic` | 越层余量与探针外扩的浮点垫量 | 值已证实；取值推断 |
-| `MIN_HORIZONTAL_SPEED_SQ` | `0.001` | `UnfoldTeleportLogic` | 视为“没有水平移动意图”的速度阈值 | 值已证实；取值推断 |
+| `MIN_HORIZONTAL_SPEED_SQ` | `0.001` | `UnfoldTeleportLogic` | 视为“没有水平移动意图”的速度阈值 | 值已证实；取值推断；另见 5.1 F3 |
 | `VANILLA_DELTA_EPSILON` | `1.0e-6` | `UnfoldTeleportLogic` | 无输入时判定原版投影位移为零 | 值已证实；幅度推断 |
 | `VANILLA_PROGRESS_EPSILON` | `1.0e-4` | `UnfoldTeleportLogic` | 有输入时原版投影位移的最小进度 | 推断（规格未给幅度，注释自标） |
-| `ISO_PITCH_DEGREES` | `35.26438968` | `ProjectionBasis` | arctan(1/√2) 的精确值 | 来源已证实；与相机一致未验证，推断 |
+| `ISO_PITCH_DEGREES` | `35.26438968` | `ProjectionBasis` | arctan(1/√2) 的精确值；相机与基共用同一常量（`CameraMixin` 强制写入） | 来源已证实；基与相机一致已证实；把该角作为美术选择是推断 |
+| `EPSILON`（投影/射线数值） | `1.0e-9` | `ProjectionBasis`、`LayerRaycaster` | d∥Y 判定与射线区间退化的数值垫量 | 值已证实；取值推断 |
 
 **`MAX_REQUEST_DISTANCE` 的复核结论**（已证实：由代码与数值计算推出）：
 
-- 水平模式：`λ = tExit + clearance ≤ 64 + 0.5·width·(|d.x|+|d.z|) + 0.01`，玩家宽度 0.6 时约 `64.31`。
-- 垂直模式：`d.y ≈ ±1`，`λ = Δy / |d.y| ≤ 64`。
-- 斜向模式的主路径沿 ±d 取证据，`λ ≤ 64` 上下；但从竖直射线取层证据的两条路径（潜行下落、空中侧向跨越）用 `λ = Δy / d.y`，`Δy ≤ 64`、`|d.y| = 1/√3 ≈ 0.577`，因此 `λ ≤ 64 / 0.577 ≈ 110.9`，再加探针偏移约 1 格，总位移不超过约 112 格。
-- 因此全部合法候选的位移都小于 256，256 对正常切层不生效，只拦明显伪造的请求。若要让上限真正贴合玩法，可下调到约 128；本次不改代码（推断：下调建议未实施）。
+- 水平模式：`λ = tExit + clearance ≤ 64 + 0.5·width·(|d.x|+|d.z|) + 0.01`，玩家宽度 0.6、预设水平视角时约 `64.31`。
+- 垂直模式：`d ∥ Y`，`λ = Δy / |d.y| ≤ 64`。
+- 斜向模式：主路径沿 ±d 取证据，探测起点距玩家不超过约 0.31 格，因此 `λ ≤ 64 + 0.31·cos(pitch) ≈ 64.26`。
+- 斜向模式里的潜行下落与空中侧向跨越使用**竖直**射线取层证据，但它们的调用点是 `handleHorizontalTeleport`，此时基为水平（`d⊥Y`），`candidateOnLayer` 在 `canChangeWorldY() == false` 时直接返回 `null`，不产生候选。因此这类路径不参与合法 λ 上界（详见 5.1 F2）。
+- 结论：合法候选的位移上界约 65 格（64.31 再加不计入射线的探针/辅助线余量），256 约为其 4 倍，对正常切层不生效，只拦明显伪造的请求。若要让上限贴合玩法，可下调到约 128；本次不改代码（推断：下调建议未实施）。
 
-## 6. 已知未验证项
+### 5.1 规格—代码常量对账
 
-以下条目不影响“代码当前如何工作”的描述，但影响“这套算法是否真的成立”的判断，评审时应单独看待。
+扫描范围：`ProjectionBasis`、`UnfoldTeleportLogic`、`TeleportTargetValidator`、`UnfoldManager`、`UnfoldMod`，并含回执链上的 `ClientPlayNetworkHandlerMixin`。结论：15 项字面量全部一致，无值差异。行号为本提交时的实际位置。
 
-1. **相机一致性未实机验证**：`ProjectionBasis` 类注释自述“尚未在运行时验证其与相机实际成像完全一致”。e_r 的符号有字节码静态证明，但整条投影基与画面是否逐帧吻合没有实测。（推断基准）
-2. **玩家 yaw 未锁定**：鼠标移动会改变原版输入的世界方向，使其偏离当前基；这只影响输入映射，不改变基的符号，但会让“屏幕输入”与“实际移动”不一致。未量化影响。（推断）
-3. **A5 只验终点，不验越层路径**：水平候选允许穿过中间层，理由是 d 方向正是 Π 压缩掉的深度、中间层在画面上不可分辨。该玩法判断没有运行时验证；代价是起点与终点之间的其它层不逐层检查。（推断）
-4. **两端输入不同步**：共享第 1–7 步消除了算法分叉，但没有消除“客户端世界与服务端世界、客户端 tick 与服务端 tick”的差异。是否会出现高频的“客户端通过、服务端拒绝”未实测。（推断）
-5. **服务端拉回阈值未联机实测**：`moved too quickly` / `moved wrongly` 的判定与 `isHost` 跳过行为来自 1.21.5 字节码静态分析；切层请求在专用服与局域网下是否真的不被拉回，没有运行日志。（推断）
-6. **`NO_SUPPORT` 保持预测位置的实际表现**：依赖重力与权威位置包纠正；是否产生连续拒绝、下落穿透或抖动未实测。（推断）
-7. **拒绝回退只改位置**：`setPos(origin)` 不重置速度与碰撞状态；回退后下一 tick 的原版移动如何重算未验证。（推断）
-8. **抑制与前瞻参数未评估**：`REVERSE_CUT_RADIUS = 2.5`、`LATERAL_LOOKAHEAD = 0.2`、层滞回“同一次跳跃不允许反向换层”的玩法代价，都没有实测数据。（推断）
-9. **超时窗口对齐**：客户端 `20 tick` 超时与服务端 `handlePendingTeleport` 窗口一致，但两端时钟偏差与网络延迟未测。（推断）
-10. **`ISO_PITCH_DEGREES` 来源**：精确值由 arctan(1/√2) 得出，初始提交为手写 35.26；与相机实际俯仰的偏差未实测。（推断）
-11. **`MAX_REQUEST_DISTANCE` 偏宽**：按第 5 节推导，合法位移上界约 112 格，256 有约 2.3 倍余量；是否下调未定。（推断）
-12. **层证据与实体碰撞的时序**：服务端在包处理时读取世界状态，客户端在 tick 结束时读取；同一 tick 内实体位置可能不同，`getEntityCollisions` 的结果可能因此变化。未实测。（推断）
+| 常量 | 规格值 | 代码值（file:line） | 结论 |
+| --- | --- | --- | --- |
+| `MAX_DISTANCE` | `64.0` | `64.0`（`UnfoldTeleportLogic.java:29`） | 一致 |
+| `MAX_REQUEST_DISTANCE` | `256.0` | `256.0`（`TeleportTargetValidator.java:65`） | 一致 |
+| `SURFACE_TOLERANCE` | `1.0e-4` | `1.0e-4`（`TeleportTargetValidator.java:43`；客户端引用见 `UnfoldTeleportLogic.java:36`） | 一致 |
+| `PROJECTION_TOLERANCE` | `1.0e-6` | `1.0e-6`（`UnfoldTeleportLogic.java:33`） | 一致 |
+| `AUTHORITY_TOLERANCE` | `1.0e-4` | `1.0e-4`（`ClientPlayNetworkHandlerMixin.java:25`） | 一致 |
+| `TELEPORT_REQUEST_INTERVAL_TICKS` | `2` | `2`（`UnfoldManager.java:37`） | 一致 |
+| `PENDING_TELEPORT_TIMEOUT_TICKS` | `20` | `20`（`UnfoldManager.java:42`） | 一致 |
+| `REVERSE_CUT_RADIUS` | `2.5` | `2.5`（`UnfoldTeleportLogic.java:44`） | 一致 |
+| `LATERAL_LOOKAHEAD` | `0.2` | `0.2`（`UnfoldTeleportLogic.java:42`） | 一致 |
+| `EPSILON`（几何） | `0.01` | `0.01`（`UnfoldTeleportLogic.java:31`） | 一致 |
+| `MIN_HORIZONTAL_SPEED_SQ` | `0.001` | `0.001`（`UnfoldTeleportLogic.java:46`） | 一致（另有同值硬编码，见 F3） |
+| `VANILLA_DELTA_EPSILON` | `1.0e-6` | `1.0e-6`（`UnfoldTeleportLogic.java:38`） | 一致 |
+| `VANILLA_PROGRESS_EPSILON` | `1.0e-4` | `1.0e-4`（`UnfoldTeleportLogic.java:40`） | 一致 |
+| `ISO_PITCH_DEGREES` | `35.26438968` | `35.26438968f`（`ProjectionBasis.java:25`） | 一致 |
+| `EPSILON`（投影/射线数值） | `1.0e-9` | `1.0e-9`（`ProjectionBasis.java:28`、`LayerRaycaster.java:31`） | 一致 |
+
+对账过程中没有发现任何字面量值不一致。另有三项**非值差异**的发现：
+
+- **F1（文档/注释错，已改）**：上一版把合法位移上界写成“约 111（再由探针偏移加到 112）”。该推导混用了“竖直射线取证据 + 斜向基反解 λ”这一组合，而该组合在当前模式装配下不产生候选。按代码事实，上界约 65。已改本文件与两处代码注释（`TeleportTargetValidator` 的 `MAX_REQUEST_DISTANCE` 注释、`UnfoldMod` 接收器注释），只改文字，不改行为。
+- **F2（代码实况，仅记录，未改代码）**：`checkHorizontalJump`、`checkHorizontalSneak`、`checkHorizontalAirStrafe` 均只在 `HORIZONTAL` 模式下调用，而该模式的基恒为 `d⊥Y`；`candidateOnLayer` 对这种基直接返回 `null`，所以这三条路径在当前装配下无法产出候选。是否属于预期玩法需要单独判断，本轮不动代码。（已证实：调用点与 `canChangeWorldY` 实现。）
+- **F3（同值重复，仅记录）**：`checkHorizontalAirStrafe` 用字面量 `0.001`（`UnfoldTeleportLogic.java:777`）而不是常量 `MIN_HORIZONTAL_SPEED_SQ`，两者数值相同，无行为差异。
+
+## 6. 已知未验证项的静态筛查
+
+原 12 条按“能否只靠静态材料定论”分成三档。**静态已闭合**指事实层面已由代码、代数或字节码判定，不再需要运行观测；**部分静态**指结构事实已证实，但幅度/频率仍需实测；**必须联机**指没有静态可替代的观测点。
+
+| 条目 | 档位 | 静态证据 / 缺失的观测点 |
+| --- | --- | --- |
+| 1 相机一致性 | 静态已闭合（基与相机旋转） | `CameraMixin` 每帧把相机 `yaw/pitch` 强制为 `ProjectionBasis` 的值，并取消外部 `setRotation`；`GameRendererMixin` 用 `rotationXYZ(pitch, yaw+180, 0)`，与 `conjugate(rotationYXZ(π−yaw, −pitch, 0))` 等价（JOML 乘法顺序已核对）；正交投影的屏幕轴就是相机基的 `e_r/e_u`。（已证实：代码与代数）剩余只是观感与美术设定（推断） |
+| 2 玩家 yaw 未锁定 | 部分静态 | 仓库内没有对玩家实体 `setYaw` 的锁定，`CameraMixin` 只锁 `Camera` 字段，不锁实体；vanilla `Mouse` 走 `changeLookDirection` 改实体 yaw，原版移动按实体 yaw 定向。（已证实：代码与 vanilla 行为）缺失观测：每 tick “实体 yaw − 基 yaw”的偏差与移动方向偏离量（推断：只能实测） |
+| 3 只验终点、不验越层路径 | 部分静态 | 调用链只把候选传给 `validateEndpoint`，没有任何中间层/路径采样；`tryHorizontalCandidate` 注释也明确不验路径。（已证实：代码）缺失观测：穿层后是否被挡、卡在不可见层或反复触发（推断） |
+| 4 两端输入不同步 | 部分静态 | 客户端在 `END_CLIENT_TICK` 读 `ClientWorld`，服务端在主线程读 `ServerWorld`，实体集合与 tick 相位都不同。（已证实：代码结构）缺失观测：拒绝率，即服务端拒绝原因计数 / 客户端请求数（推断） |
+| 5 服务端拉回阈值 | 必须联机 | 静态材料只有原版 `ServerPlayNetworkHandler.onPlayerMove` 的字节码结论（`moved too quickly` / `moved wrongly` → `requestTeleport`，约 20 tick 重发），不在本仓库内。（已证实：字节码静态分析）缺失观测：服务端日志中的拉回记录条数与切层请求数之比（推断） |
+| 6 `NO_SUPPORT` 保持位置 | 必须联机 | 静态只能确认分支存在。缺失观测：拒绝后 20 tick 内的客户端 Y 轨迹、是否触发原版拉回、是否连续拒绝（推断） |
+| 7 回退只改位置 | 部分静态 | `handleTeleportResponse` 只调 `setPos`，不重置速度、pose 或落地状态。（已证实：代码）缺失观测：回退后下一 tick 移动包是否被服务端接受（推断） |
+| 8 抑制/前瞻参数 | 必须联机 | 2.5、0.2 与层滞回单调性的代价只能由玩法数据判断。缺失观测：误抑制/误触发计数与“同一次跳跃尝试反向换层”的次数（推断） |
+| 9 超时窗口对齐 | 必须联机 | 两端数值都是 20 tick。（已证实：代码）缺失观测：回执延迟分布、超时触发次数与两端时钟偏差（推断） |
+| 10 `ISO_PITCH_DEGREES` | 静态已闭合（基与相机） | 相机与基共用同一常量，不存在“基角度与相机角度不一致”的问题；数值本身是 arctan(1/√2)。（已证实：代码与代数）是否为期望的美术角度属于设计判断（推断） |
+| 11 `MAX_REQUEST_DISTANCE` 偏宽 | 静态已闭合（上界） | 上界约 65 由射线长度与预设视角推出，256 约为 4 倍。（已证实：推导）下调与否是设计决定（推断） |
+| 12 层证据与实体碰撞时序 | 部分静态 | 客户端 tick 末、服务端包处理时读取，读点不同。（已证实：代码）缺失观测：同一 tick 内两端 `getEntityCollisions` 结果的差异样本（推断） |
+
+筛查结果：3 条静态已闭合（1、10、11），5 条部分静态（2、3、4、7、12），4 条必须联机实测（5、6、8、9）。必须联机项各自缺的观测点已写在上表。

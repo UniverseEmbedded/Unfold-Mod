@@ -49,16 +49,18 @@ public final class TeleportTargetValidator {
      * 依据是本仓库生成候选的几何上界：
      * <ul>
      *   <li>候选恒为 {@code p_desired + λd}，且 λ 由层证据给出。</li>
-     *   <li>垂直与斜向模式：层证据来自长度 {@code MAX_DISTANCE = 64} 的射线，
-     *       竖直方向位移不超过 64；换算成 λ 时 {@code λ = Δy / |d.y|}，
-     *       等轴方向 {@code |d.y| ≈ 0.577}，λ 上界约 {@code 64 / 0.577 ≈ 111}，
-     *       位移 {@code λ·|d| = λ} 约 111 格。</li>
      *   <li>水平模式：{@code d ⊥ Y}，λ 直接等于沿 d 的越层距离，
-     *       由同一射线长度约束为约 {@code 64 + clearance}；
-     *       而实际目标层通常就在 1–3 格外，水平切层位移正是这个量级。</li>
+     *       由 {@code MAX_DISTANCE = 64} 的射线长度加 clearance 约束为约 {@code 64.31}。</li>
+     *   <li>垂直模式：{@code d ∥ Y}，{@code λ = Δy / |d.y| ≤ 64}。</li>
+     *   <li>斜向模式：主路径沿 ±d 取证据，探测起点距玩家不超过约 0.31 格，
+     *       {@code λ ≤ 64 + 0.31·cos(pitch) ≈ 64.26}。
+     *       水平模式里的潜行下落/空中跨越虽然用竖直射线，但其调用点的基为 {@code d⊥Y}，
+     *       {@code candidateOnLayer} 会因 {@code canChangeWorldY() == false} 返回 null，
+     *       不产生候选，因此不参与上界。</li>
      * </ul>
-     * 因此 256 覆盖了全部合法候选（上界约 111 < 256），它不构成玩法约束，
+     * 因此全部合法候选的位移不超过约 65 格（65 < 256），256 不构成玩法约束，
      * 只作为「明显不是在切层」的粗界，防止客户端发来任意坐标。
+     * 详细推导见 {@code docs/SPEC-UNFOLD-ALGORITHM.md} 第 5、5.1 节。
      */
     public static final double MAX_REQUEST_DISTANCE = 256.0;
 

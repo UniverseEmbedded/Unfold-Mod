@@ -34,8 +34,9 @@ public class UnfoldMod implements ModInitializer {
             Vec3d targetPos = payload.targetPos();
 
             // 距离粗界：只拦明显不是切层的伪造请求，不是玩法约束。
-            // 合法候选位移上界约 111 格（推导见 TeleportTargetValidator.MAX_REQUEST_DISTANCE），
-            // 远小于 256，因此该上限对正常切层不生效。
+            // 合法候选位移上界约 65 格（推导见 TeleportTargetValidator.MAX_REQUEST_DISTANCE
+            // 与 docs/SPEC-UNFOLD-ALGORITHM.md 第 5、5.1 节），256 约为其 4 倍，
+            // 因此该上限对正常切层不生效。
             if (player.getPos().distanceTo(targetPos) > TeleportTargetValidator.MAX_REQUEST_DISTANCE) {
                 LOGGER.warn("Player {} teleport rejected: distance exceeded, from {} to {}",
                         player.getName().getString(), player.getPos(), targetPos);
