@@ -123,6 +123,24 @@ p(λ) = anchor + λ d
 - 若把触发条件限定为“沿 d 即将碰撞”，水平地面穿越永远不会触发。（已证实：`handlePlayerMovement` 的赋值与 `isAboutToCollideHorizontally` 注释。）
 - 实现改为按任意水平速度方向触发，但仍只在 `p_desired + λd` 上搜索；代价是触发面变宽，且横向余量只是候选处的静态检测，不验证从原位到候选的横向路径。（已证实：代码注释；代价评估为推断。）
 
+### 2.5 `reconstructAtY` 与 `candidateAtLambda` 的关系
+
+结论：两者不是同一件事的两份实现。重叠只在“沿 d 重建”这一步，而这一步已经统一调用 `ProjectionBasis.reconstruct`。（已证实：两个方法的实现。）
+
+各自的输入与行为：
+
+- `ProjectionBasis.reconstructAtY(anchor, targetY)`：输入是目标世界 Y，内部按 `λ = (targetY − anchor.y) / d.y` 反解，再 `anchor + λd`；不做投影检查；`d⊥Y` 时返回 `anchor`（λ=0）。
+- `UnfoldTeleportLogic.candidateAtLambda(player, basis, λ)`：λ 已由层区间给出（水平模式下为带符号的 `tExit + clearance`），直接 `anchor + λd`，不做 Y 反解；随后做 Π 硬检查。
+
+`candidateAtLambda` 不能复用 `reconstructAtY`，原因有两条（已证实：参数与退化分支的差异）：
+
+1. 参数语义不同：前者没有“目标 Y”这个输入，λ 来自射线区间，而不是由层顶面反解。
+2. 退化条件相反：`d⊥Y`（水平模式）下 `reconstructAtY` 返回原地，而 `candidateAtLambda` 必须产出真实候选；若改用 `reconstructAtY`，水平切层会变成“原地不动”。
+
+真正与 `reconstructAtY` 重叠的是 `candidateOnLayer` 的 λ 反解：两者用同一公式 `(feetY − p_desired.y) / d.y`。`candidateOnLayer` 目前保留独立写法，因为它多了一层“`d⊥Y` 返回 `null`”的退化语义（区别于 `reconstructAtY` 的返回原地），以及随后的 Π 硬检查。
+
+可合并性（方案，尚未执行）：把 `candidateOnLayer` 的 λ 反解与重建替换为 `basis.reconstructAtY(desired, feetY)`，保留前置 `!canChangeWorldY()` 返回 `null` 与后置 Π 检查。该改法与现状行为等价——`canChangeWorldY()` 为 `false` 时已被前置拦截，`reconstructAtY` 的原地分支永远不会进入；为 `true` 时两者走同一公式。是否合并待评审，本节只记录关系与可合并性，未改动代码。
+
 ## 3. 合法性判定：客户端 8 步、服务端 7 步
 
 两边都以实体当前 pose 的完整碰撞箱、平移到候选位置后判定。客户端实现见 `UnfoldTeleportLogic.isCandidateClear`，服务端见 `TeleportTargetValidator.validateEndpoint`，两端的第 1–7 步共用同一份代码与同一组常量。（已证实）

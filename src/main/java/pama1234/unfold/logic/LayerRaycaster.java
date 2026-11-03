@@ -17,7 +17,7 @@ import java.util.List;
 /**
  * 沿射线做方块 DDA 遍历，枚举每种 COLLIDER 形状的全部包围盒交点区间。
  *
- * 依据：`Unfold后端与几何算法规格-2026-11-03.md` A1/A3。
+ * 依据：`docs/SPEC-UNFOLD-ALGORITHM.md` 第 1 节（A1）与第 2 节（候选集）。
  * 本类只输出几何区间，不做候选搜索、不做安全判定。
  *
  * 已核对本机 Gradle 缓存中的 1.21.5 yarn 产物

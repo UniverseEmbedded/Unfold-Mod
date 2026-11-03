@@ -238,6 +238,9 @@ public class UnfoldTeleportLogic {
     /**
      * 规格 A3：候选位置只能取 {@code p_desired + λd}，且 Π(p_c) = Π(p_desired) 是硬约束。
      *
+     * 与 {@link ProjectionBasis#reconstructAtY} 的关系：λ 反解公式相同，
+     * 但这里多了「d⊥Y 返回 null」的退化分支与随后的 Π 硬检查，因此没有直接调用它。
+     *
      * @param player 客户端玩家实体；本 tick 原版移动后的位置即 p_desired。
      * @param basis  当前视角的唯一投影基。
      * @param feetY  候选的脚底高度，由层证据形状的顶面给出。
@@ -262,8 +265,11 @@ public class UnfoldTeleportLogic {
     }
 
     /**
-     * 规格 A3 与《Unfold-水平模式秩一答复》§3：λ 完全由层证据给出，
+     * 规格 A3（见 docs/SPEC-UNFOLD-ALGORITHM.md 第 2.3 节）：λ 完全由层证据给出，
      * 候选只在 {@code p_desired + λd} 上。射线只确定切层参数，不参与屏幕位移。
+     *
+     * 与 {@link ProjectionBasis#reconstructAtY} 不同：λ 已由层区间给出，不需要也没有目标 Y；
+     * d⊥Y 时本方法仍产出真实候选，而 reconstructAtY 会退化为原地（λ=0）。
      */
     private static Vec3d candidateAtLambda(ClientPlayerEntity player, ProjectionBasis basis, double lambda) {
         Vec3d desired = player.getPos();
@@ -699,7 +705,7 @@ public class UnfoldTeleportLogic {
     /**
      * 水平模式地面穿越：沿展开轴 d 的正、反两向取层区间，λ 由区间给出。
      *
-     * 依据《Unfold-水平模式秩一答复》§3：射线沿 R(λ)=p_desired+λd 只确定切层参数，
+     * 依据规格 A3（见 docs/SPEC-UNFOLD-ALGORITHM.md 第 2.3 节）：射线沿 R(λ)=p_desired+λd 只确定切层参数，
      * 候选由 p_desired+λd 重建，屏幕投影不变量由 ProjectionBasis 硬检查。
      * 水平模式 d⊥Y，因此候选保持同一世界 Y；是否可站立由 A5 的完整碰撞箱判定。
      *
@@ -754,7 +760,7 @@ public class UnfoldTeleportLogic {
     /**
      * 判断玩家是否即将在任意水平行进方向上发生碰撞。
      *
-     * 依据规格 A3 与《Unfold-水平模式秩一答复》：候选线固定为 {@code p_desired + λd}，
+     * 依据规格 A3（见 docs/SPEC-UNFOLD-ALGORITHM.md 第 2.1、2.3 节）：候选线固定为 {@code p_desired + λd}，
      * 与触发碰撞的方向无关。水平模式下玩家的实际移动由
      * {@code strafeAxis = d×Y} 给出（见 UnfoldModClient.handlePlayerMovement），与 d 垂直；
      * 若把触发条件限定为 d 方向，会漏掉该模式主要的横向受阻情形。

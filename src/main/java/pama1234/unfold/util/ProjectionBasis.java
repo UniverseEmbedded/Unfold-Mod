@@ -8,7 +8,7 @@ import net.minecraft.util.math.Vec3d;
  * 同时供相机角度、玩家输入映射、位置投影、LayerRaycaster、层滞回和目标位置重建使用。
  * 这里只保存几何定义，不做安全判定，也不读取世界。
  *
- * 依据：`Unfold后端与几何算法规格-2026-11-03.md` A1。
+ * 依据：`docs/SPEC-UNFOLD-ALGORITHM.md` 第 1 节（A1）。
  * 除 {@link #ISO_PITCH_DEGREES} 的取值说明外，本类按规格的 [推断：几何定义] 实现，
  * 尚未在运行时验证其与相机实际成像完全一致。
  */
