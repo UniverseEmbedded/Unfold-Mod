@@ -238,8 +238,8 @@ public class UnfoldTeleportLogic {
     /**
      * 规格 A3：候选位置只能取 {@code p_desired + λd}，且 Π(p_c) = Π(p_desired) 是硬约束。
      *
-     * 与 {@link ProjectionBasis#reconstructAtY} 的关系：λ 反解公式相同，
-     * 但这里多了「d⊥Y 返回 null」的退化分支与随后的 Π 硬检查，因此没有直接调用它。
+     * λ 反解与重建统一在 {@link ProjectionBasis#reconstructAtY}，此处只保留前置门控
+     * （d⊥Y 返回 {@code null}）与后置 Π 复核，不再自己写 λ 公式。
      *
      * @param player 客户端玩家实体；本 tick 原版移动后的位置即 p_desired。
      * @param basis  当前视角的唯一投影基。
@@ -254,8 +254,7 @@ public class UnfoldTeleportLogic {
             // 水平候选由 candidateAtLambda 用层区间给出的 λ 构造。
             return null;
         }
-        double lambda = (feetY - desired.y) / basis.axis().y;
-        Vec3d candidate = basis.reconstruct(desired, lambda);
+        Vec3d candidate = basis.reconstructAtY(desired, feetY);
 
         // 规格 A3：投影不变量是硬约束；这里的容差只用于数值比较，不作为允许的位移量。
         if (!basis.preservesProjection(desired, candidate, PROJECTION_TOLERANCE)) {

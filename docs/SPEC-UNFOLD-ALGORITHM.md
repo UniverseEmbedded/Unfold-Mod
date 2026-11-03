@@ -137,9 +137,15 @@ p(λ) = anchor + λ d
 1. 参数语义不同：前者没有“目标 Y”这个输入，λ 来自射线区间，而不是由层顶面反解。
 2. 退化条件相反：`d⊥Y`（水平模式）下 `reconstructAtY` 返回原地，而 `candidateAtLambda` 必须产出真实候选；若改用 `reconstructAtY`，水平切层会变成“原地不动”。
 
-真正与 `reconstructAtY` 重叠的是 `candidateOnLayer` 的 λ 反解：两者用同一公式 `(feetY − p_desired.y) / d.y`。`candidateOnLayer` 目前保留独立写法，因为它多了一层“`d⊥Y` 返回 `null`”的退化语义（区别于 `reconstructAtY` 的返回原地），以及随后的 Π 硬检查。
+真正与 `reconstructAtY` 重叠的是 `candidateOnLayer` 的 λ 反解：两者曾各写一份同一公式 `(feetY − p_desired.y) / d.y`。
 
-可合并性（方案，尚未执行）：把 `candidateOnLayer` 的 λ 反解与重建替换为 `basis.reconstructAtY(desired, feetY)`，保留前置 `!canChangeWorldY()` 返回 `null` 与后置 Π 检查。该改法与现状行为等价——`canChangeWorldY()` 为 `false` 时已被前置拦截，`reconstructAtY` 的原地分支永远不会进入；为 `true` 时两者走同一公式。是否合并待评审，本节只记录关系与可合并性，未改动代码。
+合并已执行：`candidateOnLayer` 的 λ 反解与重建改为调用 `ProjectionBasis.reconstructAtY(desired, feetY)`，前置 `!canChangeWorldY()` 返回 `null` 与后置 Π 复核都保留原位。等价性依据三条：
+
+1. 前置拦截：`canChangeWorldY()` 为 `false` 时，方法在调用 `reconstructAtY` 之前就已返回 `null`。
+2. 同一公式：为 `true` 时，`reconstructAtY` 内部按 `λ = (feetY − p_desired.y) / d.y` 反解，与原实现逐字相同。
+3. 退化分支不可达：`reconstructAtY` 唯一的退化返回（`d⊥Y` 时返回 `anchor`）只在第 1 条的前提下出现，而该前提已被前置门控排除。
+
+收益：λ 反解只保留 `ProjectionBasis` 一处，将来改 λ 算法不必同步两份实现。全仓复查未发现第三份同形式的 Y 反解：`tryHorizontalCandidate` 的 `λ = ±(tExit + clearance)` 是从层区间推 λ，不是从 Y 反解；`LayerRaycaster` 的 `(box.minY − origin.y) / dir.y` 是射线与包围盒的 slab 求交，不是候选参数。
 
 ## 3. 合法性判定：客户端 8 步、服务端 7 步
 
