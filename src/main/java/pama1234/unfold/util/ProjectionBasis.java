@@ -106,6 +106,30 @@ public final class ProjectionBasis {
         return new ScreenPos(point.dotProduct(screenRight), point.dotProduct(screenUp));
     }
 
+    /**
+     * 规格 A2：展开轴是否能通过 λ 改变世界 Y。
+     *
+     * 本基按 A1 构造，恒有 e_u·d = 0、e_r·d = 0，因此 Π(d) = (0, 0)；
+     * 无论 d 是否平行于 Y，Π 的核都包含 span(d)。
+     * 该判断只用于区分“层顶面 Y 反解 λ”是否可用，不改变投影秩。
+     */
+    public boolean canChangeWorldY() {
+        return Math.abs(axis.y) >= EPSILON;
+    }
+
+    /**
+     * 规格 A3：硬检查 Π(candidate) = Π(anchor)。
+     *
+     * tolerance 只用于浮点数值比较，不允许用来掩盖系统性坐标偏移。
+     */
+    public boolean preservesProjection(Vec3d anchor, Vec3d candidate, double tolerance) {
+        ScreenPos from = project(anchor);
+        ScreenPos to = project(candidate);
+        double dr = to.right() - from.right();
+        double du = to.up() - from.up();
+        return dr * dr + du * du <= tolerance * tolerance;
+    }
+
     /** 沿展开轴的自由量 λ。给定基准点与目标点，λ = (target - anchor)·d。 */
     public double lambdaFor(Vec3d anchor, Vec3d target) {
         return target.subtract(anchor).dotProduct(axis);
@@ -118,17 +142,16 @@ public final class ProjectionBasis {
 
     /**
      * 把玩家位置沿展开轴移动到指定 Y 平面，X/Z 随之变化，屏幕投影不变。
-     * 这是旧 projectPlayerToTargetY 的同一算式，用 λ 表达：
      * λ = (targetY - anchor.y) / d.y。
      *
-     * 当 d.y 接近 0（水平模式不会调用本方法）时退回只改 Y，保持旧实现的退化行为。
+     * 当 d⊥Y 时，沿 d 无法改变世界 Y：返回 anchor（λ=0），不再退回“只改 Y”的旧退化行为，
+     * 因为只改 Y 会违反 Π(p_c) = Π(p_anchor) 的硬约束。水平模式应改用 {@link #reconstruct}。
      */
     public Vec3d reconstructAtY(Vec3d anchor, double targetY) {
-        double axisY = axis.y;
-        if (Math.abs(axisY) < 1.0e-6) {
-            return new Vec3d(anchor.x, targetY, anchor.z);
+        if (!canChangeWorldY()) {
+            return anchor;
         }
-        double lambda = (targetY - anchor.y) / axisY;
+        double lambda = (targetY - anchor.y) / axis.y;
         return reconstruct(anchor, lambda);
     }
 

@@ -31,8 +31,6 @@ public class UnfoldTeleportLogic {
     private static final double EPSILON = 0.01;
     // 规格 A3：Π 不变量的数值比较容差，只用于比较，不作为允许的位移量。
     private static final double PROJECTION_TOLERANCE = 1.0e-6;
-    // 规格 A3：展开轴与世界 Y 轴接近垂直的数值判定；此时沿 d 无法改变高度。
-    private static final double LAMBDA_MIN_AXIS_Y = 1.0e-6;
     // 规格 A5：脚底与支撑面高度的数值比较容差，只用于比较。
     private static final double SURFACE_TOLERANCE = 1.0e-4;
     // 规格 A4：无屏幕方向输入时，判定“原版没有投影位移”的数值阈值。
@@ -178,8 +176,9 @@ public class UnfoldTeleportLogic {
             if (target != null) return target;
         }
 
-        // 3. 左右移动穿越 (地面)：此方法当前实现为空，不执行任何瞬移逻辑。
-        if (player.isOnGround() && isAboutToCollide(player, world)) {
+        // 3. 地面穿越：水平模式下 d⊥Y，候选只能在 p_desired + λd 上保持同一世界 Y；
+        //    触发按任意水平行进方向判定（不要求等于 d），候选仍只沿 d 搜索。
+        if (player.isOnGround() && isAboutToCollideHorizontally(player, world)) {
             Vec3d target = checkHorizontalWalk(player, world);
             if (target != null) return target;
         }
@@ -199,24 +198,34 @@ public class UnfoldTeleportLogic {
      * @param player 客户端玩家实体；本 tick 原版移动后的位置即 p_desired。
      * @param basis  当前视角的唯一投影基。
      * @param feetY  候选的脚底高度，由层证据形状的顶面给出。
-     * @return 满足投影不变量的候选；d⊥Y（无解）或数值超差时返回 {@code null}。
+     * @return 满足投影不变量的候选；d⊥Y 时层顶面无法反解 λ，返回 {@code null}
+     *         （水平候选改由 {@link #candidateAtLambda} 用层区间给出的 λ 构造）。
      */
     private static Vec3d candidateOnLayer(ClientPlayerEntity player, ProjectionBasis basis, double feetY) {
         Vec3d desired = player.getPos();
-        double axisY = basis.axis().y;
-        if (Math.abs(axisY) < LAMBDA_MIN_AXIS_Y) {
-            // 规格 A2：水平模式下 d⊥Y，沿展开轴无法改变高度，层内不存在候选。
+        if (!basis.canChangeWorldY()) {
+            // 水平模式：沿 d 的 λ 不改变世界 Y，层顶面不能用来反解 λ；
+            // 水平候选由 candidateAtLambda 用层区间给出的 λ 构造。
             return null;
         }
-        double lambda = (feetY - desired.y) / axisY;
+        double lambda = (feetY - desired.y) / basis.axis().y;
         Vec3d candidate = basis.reconstruct(desired, lambda);
 
         // 规格 A3：投影不变量是硬约束；这里的容差只用于数值比较，不作为允许的位移量。
-        ProjectionBasis.ScreenPos anchor = basis.project(desired);
-        ProjectionBasis.ScreenPos moved = basis.project(candidate);
-        double dr = moved.right() - anchor.right();
-        double du = moved.up() - anchor.up();
-        if (dr * dr + du * du > PROJECTION_TOLERANCE * PROJECTION_TOLERANCE) {
+        if (!basis.preservesProjection(desired, candidate, PROJECTION_TOLERANCE)) {
+            return null;
+        }
+        return candidate;
+    }
+
+    /**
+     * 规格 A3 与《Unfold-水平模式秩一答复》§3：λ 完全由层证据给出，
+     * 候选只在 {@code p_desired + λd} 上。射线只确定切层参数，不参与屏幕位移。
+     */
+    private static Vec3d candidateAtLambda(ClientPlayerEntity player, ProjectionBasis basis, double lambda) {
+        Vec3d desired = player.getPos();
+        Vec3d candidate = basis.reconstruct(desired, lambda);
+        if (!basis.preservesProjection(desired, candidate, PROJECTION_TOLERANCE)) {
             return null;
         }
         return candidate;
@@ -403,6 +412,36 @@ public class UnfoldTeleportLogic {
         return candidate;
     }
 
+    /**
+     * 水平模式（d⊥Y）：λ 由沿展开轴的层区间给出，候选保持同一世界 Y。
+     *
+     * directionSign = +1 表示探测沿 +d，-1 表示沿 -d。
+     * 区间参数 tEntry/tExit 始终是沿本次射线方向测得的距离，因此：
+     * 正向候选取 λ = +(tExit + clearance)，反向候选取 λ = -(tExit + clearance)。
+     * 无论符号如何，候选都只由 {@code p_desired + λd} 重建，并经过 preservesProjection 的 1e-6 硬检查。
+     *
+     * 与 {@link #tryCandidate} 的区别：不把层顶面当作站立面，
+     * 因此不经过 isSafePlatform 粗筛；支撑关系完全由 {@link #isCandidateClear} 判定。
+     * [推断] 越过该层的距离取碰撞箱半宽沿 d 的水平投影，保证完整碰撞箱退出层表面。
+     */
+    private static Vec3d tryHorizontalCandidate(ClientPlayerEntity player, ClientWorld world, ProjectionBasis basis,
+                                                LayerRaycaster.LayerInterval interval, double directionSign) {
+        Vec3d axis = basis.axis();
+        double clearance = 0.5 * player.getWidth() * (Math.abs(axis.x) + Math.abs(axis.z)) + EPSILON;
+        Vec3d candidate = candidateAtLambda(player, basis, directionSign * (interval.tExit() + clearance));
+        if (candidate == null) {
+            return null;
+        }
+        if (candidate.squaredDistanceTo(player.getPos()) < 1.0e-12) {
+            return null;
+        }
+        // 候选脚底高度就是其世界 Y；支撑面必须与它一致（A5 第 6、7 步）。
+        if (!isCandidateClear(player, world, candidate, candidate.y)) {
+            return null;
+        }
+        return candidate;
+    }
+
     /** 层证据形状在方块顶面的世界高度；非满方块按实际形状取顶。 */
     private static double layerTopY(LayerRaycaster.LayerInterval interval) {
         double blockY = interval.blockPos().getY();
@@ -571,15 +610,44 @@ public class UnfoldTeleportLogic {
     }
 
     /**
-     * 检查水平模式下玩家在地面行走时是否可以瞬移穿越障碍。
-     * 当前此方法未实现任何瞬移逻辑，始终返回 {@code null}。
+     * 水平模式地面穿越：沿展开轴 d 的正、反两向取层区间，λ 由区间给出。
+     *
+     * 依据《Unfold-水平模式秩一答复》§3：射线沿 R(λ)=p_desired+λd 只确定切层参数，
+     * 候选由 p_desired+λd 重建，屏幕投影不变量由 ProjectionBasis 硬检查。
+     * 水平模式 d⊥Y，因此候选保持同一世界 Y；是否可站立由 A5 的完整碰撞箱判定。
+     *
+     * 方向与区间语义：
+     * - 正向射线 end = p + MAX_DISTANCE·d，tEntry/tExit 沿 +d 度量，候选 λ = +(tExit+clearance)；
+     * - 反向射线 end = p - MAX_DISTANCE·d，tEntry/tExit 沿 -d 度量，候选 λ = -(tExit+clearance)。
      *
      * @param player 客户端玩家实体。
      * @param world  客户端世界。
-     * @return 始终返回 {@code null}。
+     * @return 通过 A5 的候选位置；没有则返回 {@code null}。
      */
     private static Vec3d checkHorizontalWalk(ClientPlayerEntity player, ClientWorld world) {
-        return null; // 功能待实现
+        ProjectionBasis basis = ProjectionBasis.of(UnfoldManager.currentDirection);
+        Vec3d origin = player.getPos();
+        Vec3d axis = basis.axis();
+
+        // 正向深度：沿 +d。
+        Vec3d forwardEnd = origin.add(axis.multiply(MAX_DISTANCE));
+        for (LayerRaycaster.LayerInterval interval : castLayers(world, player, origin, forwardEnd)) {
+            Vec3d candidate = tryHorizontalCandidate(player, world, basis, interval, 1.0);
+            if (candidate != null) {
+                return candidate;
+            }
+        }
+
+        // 反向深度：沿 -d；区间参数是沿 -d 的距离，故 λ 取负。
+        Vec3d backwardEnd = origin.subtract(axis.multiply(MAX_DISTANCE));
+        for (LayerRaycaster.LayerInterval interval : castLayers(world, player, origin, backwardEnd)) {
+            Vec3d candidate = tryHorizontalCandidate(player, world, basis, interval, -1.0);
+            if (candidate != null) {
+                return candidate;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -594,20 +662,27 @@ public class UnfoldTeleportLogic {
     }
 
     /**
-     * 【已修复】传入 world 参数
-     * 判断玩家是否即将与前方的方块发生碰撞。
-     * 通过预测玩家移动一小段距离后的碰撞箱来检查。
+     * 判断玩家是否即将在任意水平行进方向上发生碰撞。
+     *
+     * 依据规格 A3 与《Unfold-水平模式秩一答复》：候选线固定为 {@code p_desired + λd}，
+     * 与触发碰撞的方向无关。水平模式下玩家的实际移动由
+     * {@code strafeAxis = d×Y} 给出（见 UnfoldModClient.handlePlayerMovement），与 d 垂直；
+     * 若把触发条件限定为 d 方向，会漏掉该模式主要的横向受阻情形。
+     * 因此这里只要求“水平方向即将碰撞”，不要求碰撞方向等于 d。
+     *
+     * 代价：触发面变宽，进入切层判定的碰撞可能与该次深度搜索无直接关系；
+     * 是否放行仍由 A5 终点判定，而 A5 不检查横向路径是否因此解开（见卡点，本次未动）。
      *
      * @param player 客户端玩家实体。
      * @param world  客户端世界。
-     * @return 如果玩家即将与方块碰撞，则返回 {@code true}。
+     * @return 水平预测碰撞箱被占用则返回 {@code true}。
      */
-    private static boolean isAboutToCollide(ClientPlayerEntity player, ClientWorld world) {
-        Vec3d moveVec = player.getVelocity(); // 玩家当前的移动速度向量。
-        // 如果速度非常小，认为玩家没有移动意图，不进行碰撞预测。
-        if (moveVec.lengthSquared() < 0.001) return false;
-        // 计算玩家的预测碰撞箱：当前碰撞箱沿着移动方向稍微偏移0.2单位。
-        Box futureBox = player.getBoundingBox().offset(moveVec.normalize().multiply(0.2));
+    private static boolean isAboutToCollideHorizontally(ClientPlayerEntity player, ClientWorld world) {
+        Vec3d moveVec = player.getVelocity();
+        Vec3d horizontal = new Vec3d(moveVec.x, 0.0, moveVec.z);
+        // 速度太小视为没有水平移动意图。
+        if (horizontal.lengthSquared() < 0.001) return false;
+        Box futureBox = player.getBoundingBox().offset(horizontal.normalize().multiply(0.2));
         // 规格 A5：碰撞形状必须使用实体对应的 ShapeContext（这里用实体参数重载）。
         return !world.isSpaceEmpty(player, futureBox);
     }
