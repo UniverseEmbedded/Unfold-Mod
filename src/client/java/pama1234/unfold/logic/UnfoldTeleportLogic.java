@@ -113,7 +113,7 @@ public class UnfoldTeleportLogic {
         double up = 0.0;
         if (input.forward()) up += 1.0;
         if (input.backward()) up -= 1.0;
-        if (input.right()) right += 1.0; // [推断] e_r 正负尚未与相机左右在运行时比对
+        if (input.right()) right += 1.0; // e_r 即相机屏幕右向，静态已证实，见 ProjectionBasis 构造
         if (input.left()) right -= 1.0;
 
         double desiredLength = Math.sqrt(right * right + up * up);

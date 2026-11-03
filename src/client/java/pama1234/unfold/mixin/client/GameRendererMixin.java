@@ -62,8 +62,9 @@ public abstract class GameRendererMixin {
     private Quaternionf modifyCameraRotation(Quaternionf original, @Local(argsOnly = true) RenderTickCounter tickCounter) {
         if (UnfoldManager.unfolding && this.client.player != null) {
             // 规格 A1：相机旋转所用的角度从唯一投影基取得。
-            // [推断] 下面的 rotationXYZ(pitch, yaw + 180) 是既有渲染约定，本步骤未改动它的取向；
-            // 它与 A1 的 Π 是否完全一致，需要运行时比对相机成像后再确认。
+            // 静态已证实：JOML rotationXYZ = Rx·Ry·Rz，故下面的 rotationXYZ(pitch, yaw + 180, 0)
+            // 等于 conjugate(rotationYXZ(π - yaw, -pitch, 0))（yaw + 180 与 yaw - 180 仅差 2π）。
+            // 即这里构造的视图矩阵与 vanilla 相机在 (yaw, pitch) 上的视图矩阵相同，是纯旋转、无镜像。
             ProjectionBasis basis = ProjectionBasis.of(UnfoldManager.currentDirection);
             float targetYaw = basis.yawDegrees();
             float targetPitch = basis.pitchDegrees();

@@ -66,7 +66,13 @@ public final class ProjectionBasis {
         }
 
         // e_r = normalize(d × e_u)，规格 A1.3。
-        // [推断] 左右符号按规格的右手系取法；如需匹配相机左/右，要在运行时比对后调整。
+        // 静态已证实：e_r 就是相机的屏幕右向。
+        // 1.21.5 的 Camera.setRotation 为 rotationYXZ(π - yaw, -pitch, 0)（Y·X·Z 顺序），
+        // GameRenderer 取其共轭构造视图矩阵（纯旋转，无镜像）。
+        // 记 R = Ry(π - yaw)·Rx(-pitch)，则 R·(1,0,0) = (-cos yaw, 0, -sin yaw) = d × e_u，
+        // 故相机屏幕右向与本类 screenRight 完全一致，无需反号。
+        // 未覆盖项：玩家实体 yaw 未被锁定（Mouse 直接调 changeLookDirection），
+        // 鼠标移动会让原版输入的世界方向偏离本基；这只影响输入映射，不改变本基的符号。
         this.screenRight = this.axis.crossProduct(this.screenUp).normalize();
     }
 
