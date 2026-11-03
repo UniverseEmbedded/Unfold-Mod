@@ -3,6 +3,7 @@ package pama1234.unfold;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.option.KeyBinding;
@@ -15,6 +16,7 @@ import pama1234.unfold.logic.UnfoldConfig;
 import pama1234.unfold.logic.UnfoldManager;
 import pama1234.unfold.logic.UnfoldMode;
 import pama1234.unfold.logic.UnfoldTeleportLogic;
+import pama1234.unfold.network.TeleportResponsePayload;
 import pama1234.unfold.util.ViewDirection;
 
 public class UnfoldModClient implements ClientModInitializer {
@@ -41,6 +43,11 @@ public class UnfoldModClient implements ClientModInitializer {
         ));
 
 
+        // 服务端回执：accept / 256 格拒绝。拉回（moved wrongly / too quickly）由
+        // ClientPlayNetworkHandlerMixin 观察权威位置包处理。
+        ClientPlayNetworking.registerGlobalReceiver(TeleportResponsePayload.ID, (payload, context) ->
+                context.client().execute(() -> handleTeleportResponse(payload.accepted())));
+
         ClientTickEvents.END_CLIENT_TICK.register(tickClient -> {
 
             ClientPlayerEntity player = tickClient.player;
@@ -56,7 +63,22 @@ public class UnfoldModClient implements ClientModInitializer {
             }
 
             if (UnfoldManager.unfolding) {
-                if (!teleportCooldown) {
+                // 服务端权威切层：请求间隔与在途预测维护。
+                // 同一 tick 最多一次请求由 checkAndPerformTeleport 每 tick 只调一次保证；
+                // 这里再叠加「上一请求未确认不重发」与 tick 间隔两道限流。
+                if (UnfoldManager.teleportRequestCooldownTicks > 0) {
+                    UnfoldManager.teleportRequestCooldownTicks--;
+                }
+                if (UnfoldManager.pendingTeleportTarget != null) {
+                    UnfoldManager.pendingTeleportTicks++;
+                    if (UnfoldManager.pendingTeleportTicks > UnfoldManager.PENDING_TELEPORT_TIMEOUT_TICKS) {
+                        // 超时：丢弃预测，不回写目标位置；请求间隔冷却由 discard 重置。
+                        UnfoldManager.discardPendingTeleport();
+                    }
+                }
+                if (!teleportCooldown
+                        && UnfoldManager.teleportRequestCooldownTicks == 0
+                        && UnfoldManager.pendingTeleportTarget == null) {
                     if (UnfoldTeleportLogic.checkAndPerformTeleport(player)) {
                         teleportCooldown = true;
                     }
@@ -65,7 +87,7 @@ public class UnfoldModClient implements ClientModInitializer {
                     // 冷却在玩家落地时立即解除。水平模式切层后玩家仍在地面，因此下一 tick 就解除，
                     // 相邻两 tick 内可能再次触发切层。抑制同层正、反向往返的逻辑不在这里，
                     // 而在 UnfoldTeleportLogic.tryHorizontalCandidate / isReversedHorizontalCut。
-                    if (player.isOnGround()) {
+                    if (teleportCooldown && player.isOnGround()) {
                         teleportCooldown = false;
                     }
                 }
@@ -149,11 +171,42 @@ public class UnfoldModClient implements ClientModInitializer {
                 UnfoldManager.lastHorizontalCutSign = 0.0;
                 // 层滞回：退出时一并清空本次跳跃的换层方向，避免跨会话残留。
                 UnfoldManager.jumpLayerDirection = 0;
+                // 服务端权威切层：丢弃在途预测并清空请求间隔，避免跨会话残留。
+                UnfoldManager.pendingTeleportTarget = null;
+                UnfoldManager.pendingTeleportOrigin = null;
+                UnfoldManager.pendingTeleportTicks = 0;
+                UnfoldManager.teleportRequestCooldownTicks = 0;
                 if (originalPerspective != null) {
                     client.options.setPerspective(originalPerspective);
                 }
             }
         }
+    }
+
+    /**
+     * 处理服务端对切层请求的回执。
+     * accepted=true：服务端已执行 player.teleport，权威位置随后由 PlayerPositionLook 包落地；
+     * 本地预测到此转为已确认，不再回写。
+     * accepted=false：256 格校验拒绝。丢弃预测并把本地位置回退到预测前位置，
+     * 避免客户端继续以未获授权的坐标漂移；请求间隔冷却由 discardPendingTeleport 重置。
+     */
+    private static void handleTeleportResponse(boolean accepted) {
+        if (UnfoldManager.pendingTeleportTarget == null) {
+            // 过期回执（已超时或被拉回处理过）。
+            return;
+        }
+        if (accepted) {
+            UnfoldManager.pendingTeleportTarget = null;
+            UnfoldManager.pendingTeleportOrigin = null;
+            UnfoldManager.pendingTeleportTicks = 0;
+            return;
+        }
+        ClientPlayerEntity player = MinecraftClient.getInstance().player;
+        if (player != null && UnfoldManager.pendingTeleportOrigin != null) {
+            Vec3d origin = UnfoldManager.pendingTeleportOrigin;
+            player.setPos(origin.x, origin.y, origin.z);
+        }
+        UnfoldManager.discardPendingTeleport();
     }
 
     private void handlePlayerMovement(MinecraftClient client, ClientPlayerEntity player) {

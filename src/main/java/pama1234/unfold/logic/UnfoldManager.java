@@ -28,4 +28,40 @@ public class UnfoldManager {
      * 不能先向上再向下（反向换层会被拒绝），这是该选择已知的取舍。
      */
     public static int jumpLayerDirection = 0;
+
+    /**
+     * 服务端权威切层：请求包发送后的最小间隔（客户端 tick）。
+     * 依据：切层发生在 END_CLIENT_TICK，请求最早要到服务端下一 tick 才被处理，
+     * 间隔 2 tick 保证两次请求之间至少隔一个服务端 tick，不会在同一 tick 叠发。
+     */
+    public static final int TELEPORT_REQUEST_INTERVAL_TICKS = 2;
+    /**
+     * 待确认预测的超时（客户端 tick）。依据：与服务端 handlePendingTeleport 的
+     * 20 tick 重发窗口一致，超过这个窗口仍未回执就认定丢失。
+     */
+    public static final int PENDING_TELEPORT_TIMEOUT_TICKS = 20;
+
+    /**
+     * 客户端预测：待服务端确认的切层目标。非 null 表示有一个未确认的请求在途；
+     * 本地位置只是预测，不是权威结果。
+     */
+    public static Vec3d pendingTeleportTarget = null;
+    /** 预测前的位置，供服务端拒绝（256 格校验）时回退。 */
+    public static Vec3d pendingTeleportOrigin = null;
+    /** 待确认预测已持续的客户端 tick 数，用于超时丢弃。 */
+    public static int pendingTeleportTicks = 0;
+    /** 发送请求后的剩余禁止发送 tick 数，与既有 teleportCooldown 独立叠加。 */
+    public static int teleportRequestCooldownTicks = 0;
+
+    /**
+     * 丢弃待确认预测：不回写目标位置（拉回后服务端位置已是权威值），
+     * 并重置请求间隔冷却，避免下一 tick 立刻重发。既有 teleportCooldown 的
+     * 「落地即解除」语义不变。
+     */
+    public static void discardPendingTeleport() {
+        pendingTeleportTarget = null;
+        pendingTeleportOrigin = null;
+        pendingTeleportTicks = 0;
+        teleportRequestCooldownTicks = TELEPORT_REQUEST_INTERVAL_TICKS;
+    }
 }

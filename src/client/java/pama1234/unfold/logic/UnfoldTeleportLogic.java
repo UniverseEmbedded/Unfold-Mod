@@ -1,5 +1,6 @@
 package pama1234.unfold.logic;
 
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.block.ShapeContext;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.world.ClientWorld;
@@ -11,6 +12,7 @@ import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.shape.VoxelShape;
 import pama1234.unfold.UnfoldMod;
 import pama1234.unfold.event.PlayerTeleportCallback;
+import pama1234.unfold.network.TeleportRequestPayload;
 import pama1234.unfold.util.ProjectionBasis;
 import pama1234.unfold.util.ViewDirection;
 
@@ -356,6 +358,7 @@ public class UnfoldTeleportLogic {
 
     /**
      * 将玩家瞬移到指定的目标位置。
+     * 本地位置只是预测：同时向服务端发送 TeleportRequestPayload，由服务端 player.teleport 落地权威位置。
      * 同时会清除玩家的垂直速度，并触发瞬移事件回调。
      *
      * @param player    要瞬移的玩家实体。
@@ -365,16 +368,24 @@ public class UnfoldTeleportLogic {
     private static void teleportPlayer(ClientPlayerEntity player, Vec3d targetPos) {
         Vec3d fromPos = player.getPos(); // 获取瞬移前的位置，用于事件回调。
 
-        // 设置玩家的新位置。
+        // 客户端本地预测（非权威）：先按目标位置摆放，等服务器回执或权威位置包确认。
+        // 权威结果由服务端 player.teleport 下发，本地位置不作为最终依据。
         player.setPos(targetPos.x, targetPos.y, targetPos.z);
         // 清除玩家的垂直速度，防止瞬移后继续下落或上升。
         player.setVelocity(player.getVelocity().x, 0, player.getVelocity().z);
-        UnfoldMod.LOGGER.info("Teleported to {}", targetPos);
+
+        // 记录在途预测：限流、拒绝回退、拉回丢弃都依赖这三个字段。
+        UnfoldManager.pendingTeleportTarget = targetPos;
+        UnfoldManager.pendingTeleportOrigin = fromPos;
+        UnfoldManager.pendingTeleportTicks = 0;
+        UnfoldManager.teleportRequestCooldownTicks = UnfoldManager.TELEPORT_REQUEST_INTERVAL_TICKS;
+        // 真正把切层位置提交给服务端；服务端 256 格校验后执行 player.teleport。
+        ClientPlayNetworking.send(new TeleportRequestPayload(targetPos));
+
+        UnfoldMod.LOGGER.info("Teleported to {} (client prediction, awaiting server authority)", targetPos);
 
         // 【新增】触发瞬移事件，通知监听器玩家已瞬移。
         PlayerTeleportCallback.EVENT.invoker().onTeleport(UnfoldManager.currentMode, fromPos, targetPos);
-
-        // 这里可以添加一个短暂的冷却时间，防止瞬移在短时间内连续多次触发，造成体验问题。
     }
 
     /**
