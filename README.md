@@ -2,7 +2,7 @@
 
 [![Minecraft Version: 1.21.5](https://img.shields.io/badge/Minecraft-1.21.5-brightgreen.svg)](https://www.minecraft.net/)
 [![Fabric API](https://img.shields.io/badge/Requires-Fabric%20API-blue.svg)](https://fabricmc.net/use/)
-[![Status](https://img.shields.io/badge/Status-Beta-yellow.svg)](https://github.com/pama1234/unfold-mod-template-1.21.5)
+[![Status](https://img.shields.io/badge/Status-Beta-yellow.svg)](https://github.com/UniverseEmbedded/Unfold-Mod)
 
 **Unfold Mod** 是一款为 Minecraft 引入全新空间解谜维度的 Fabric 模组。它深受《纪念碑谷》和《FEZ》等经典益智游戏的启发，允许你将三维的 Minecraft 世界“展开”成一个二维的正交视图。
 
@@ -16,19 +16,19 @@
 
 ### 1. 斜角模式 (Isometric Mode) - 核心玩法，已完善！
 这是本模组的精髓所在，提供了类似《纪念碑谷》的沉浸式体验。
-- **智能单辅助线系统**: 我们摒弃了复杂的探测逻辑，独创了一套基于“单辅助线”的智能传送系统。它会根据你的视角动态计算出一条关键的探测线。
+- **主辅助线 + 阴影探测线**: 传送由主辅助线做双向深度探测，由阴影探测线判断向上切层是否被遮挡。
 - **双向深度探测**: 这条辅助线能够同时探测“高处”和“低处”的平台。当你走向视觉上的高台或深渊时，系统会自动判断是否存在可行的传送路径。
 - **阴影安全区**: 独创的“第二辅助线”（阴影探测线）机制，允许你在建筑物的阴影下自由行走。只有当你明确地走出阴影，意图前往更高平台时，向上的传送才会被激活，极大地提升了操控的自由度和精确性。
 - **无缝深度传送**: 所有传送都会沿着视线方向（展开线）进行精确投影，确保玩家在屏幕上的位置保持不变，只改变其三维深度，创造出完美的视错觉效果。
 
 ### 2. 展开模式 (Unfold Mode)
-- **一键切换**: 按下默认按键 **`F`**，即可在标准的三维透视视角和独特的二维正交视角之间无缝切换。
-- **智能对齐**: 进入模式时，视角会自动对齐到预设的固定角度之一（包含8个斜向45度角），为你呈现一个完美的、类似建筑蓝图的视图。
-- **沉浸式体验**: 自动切换到第三人称视角，以获得最佳的全局观察视野。退出时恢复原始视角。
+- **一键切换**: 按下默认按键 **`V`**，即可在标准的三维透视视角和独特的二维正交视角之间无缝切换。
+- **智能对齐**: 进入模式时，视角会自动对齐到预设的固定角度之一（8 个斜向 45 度角、4 个水平方向、2 个垂直方向），为你呈现一个完美的、类似建筑蓝图的视图。
+- **沉浸式体验**: 默认自动切换到第三人称视角，以获得最佳的全局观察视野。退出时恢复原始视角；该行为由 `UnfoldConfig.AUTO_THIRD_PERSON` 控制。
 
-### 3. 其他模式 (开发中)
-- **水平模式 (Horizontal Mode)**: 类似《FEZ》的侧向卷轴平台体验。基础功能已实现，但核心传送逻辑仍在打磨中。
-- **垂直模式 (Vertical Mode)**: 顶视或底视的平面视图。视角切换功能已实现，但传送逻辑尚待完善。
+### 3. 其他模式
+- **水平模式 (Horizontal Mode)**: 类似《FEZ》的侧向卷轴体验，地面穿越切层已实现。跳跃上探、边缘下落、空中侧跨这三条动作路径由垂直/斜向模式兜底，不在水平模式内触发。
+- **垂直模式 (Vertical Mode)**: 顶视或底视的平面视图，层间升降已实现，并包含跳跃上探、边缘下落、空中侧跨三条动作路径。
 
 ---
 
@@ -36,7 +36,7 @@
 
 1.  **安装**: 确保你已安装 [Fabric Loader](https://fabricmc.net/) 和 [Fabric API](https://www.curseforge.com/minecraft/mc-mods/fabric-api)。然后将Mod的 `.jar` 文件放入你的Minecraft实例的 `mods` 文件夹中。
 2.  **进入游戏**: 加载一个世界（推荐创造模式以搭建有趣的解谜场景）。
-3.  **切换模式**: 按下 **`F`** 键，世界将在你眼前“展开”。通过在普通模式下旋转角色，可以改变你进入展开模式时的初始斜角方向。
+3.  **切换模式**: 按下 **`V`** 键，世界将在你眼前“展开”。通过在普通模式下旋转角色，可以改变你进入展开模式时的初始斜角方向。
 4.  **触发传送 (斜角模式)**:
   - **走向高处/低处**: 向着一个在视觉上相邻但实际很远的平台移动（特别是按`S`键向屏幕下方移动时）。
   - **信仰之跃**: 从平台边缘走向视觉上的“深渊”，如果下方有另一个平台，你将被安全地传送到那里。
@@ -59,10 +59,10 @@
       -   **高处探测**: 通过一条从远处射向`pivotPoint`的反向射线，模拟从相机视线方向的遮挡判断。
       -   **低处探测**: 通过一条从`pivotPoint`射向远处的正向射线，模拟玩家“跌落”的路径。
     -   **阴影探测线 (辅助线2)**: 这是实现高级控制的关键。它是一条比主探测线更靠内的“视线遮挡”探测线。只有当这条线的路径在当前高度不被遮挡时，系统才允许向上瞬移的逻辑被触发。这有效地创建了一个玩家可以自由行走的“阴影安全区”。
-    -   **沿视线投影 (`projectPlayerToTargetY`)**: 瞬移目标不再是简单地移动到目标方块上方，而是通过精确的线性代数计算，将玩家当前位置沿着展开轴（视线方向）投影到目标平台的高度。这保证了玩家在屏幕上的二维坐标不变，实现了完美的深度传送。
+    -   **沿视线投影**: 瞬移目标通过线性代数把玩家当前位置沿展开轴投影到目标平台的高度（`ProjectionBasis.reconstructAtY`），保证玩家在屏幕上的二维坐标不变。
 
 -   **自动化测试框架 (Automated Test Framework)**:
-  -   项目内置了一个强大的客户端测试框架 (`TestRunner`)，可通过指令 `/unfold test <test_name|all>` 启动，极大地保证了核心传送逻辑的稳定性和正确性。
+  -   本仓库当前未提供自动化测试框架，也没有 `/unfold test` 命令。原版曾有的 `TestRunner` 与任务集已在新架构重构中移除，尚未重建。
 
 ---
 
@@ -72,14 +72,14 @@
 
 1.  下载并安装 [Fabric Loader](https://fabricmc.net/use/installer/)。
 2.  下载 [Fabric API](https://www.curseforge.com/minecraft/mc-mods/fabric-api) 并将其放入 `mods` 文件夹。
-3.  从 [Releases 页面](https://github.com/pama1234/Unfold/releases) 下载本Mod的最新 `.jar` 文件。
+3.  从 [Releases 页面](https://github.com/UniverseEmbedded/Unfold-Mod/releases) 下载本Mod的最新 `.jar` 文件。
 4.  将下载的 `.jar` 文件放入你的 Minecraft 游戏目录下的 `mods` 文件夹中。
 5.  启动游戏。
 
 ### 开发者 (Building from Source)
 
-1.  克隆本仓库: `git clone https://github.com/pama1234/unfold-mod-template-1.21.5.git`
-2.  进入项目目录: `cd unfold-mod-template-1.21.5`
+1.  克隆本仓库: `git clone https://github.com/UniverseEmbedded/Unfold-Mod.git`
+2.  进入项目目录: `cd Unfold-Mod`
 3.  构建项目:
   -   Windows: `gradlew build`
   -   Linux / macOS: `./gradlew build`

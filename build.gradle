@@ -73,6 +73,13 @@ jar {
 	}
 }
 
+// 第一批逻辑自检：普通 main，不依赖 JUnit，不启动游戏。
+tasks.register('selfCheck', JavaExec) {
+	dependsOn tasks.named('testClasses')
+	classpath = sourceSets.test.output + sourceSets.main.runtimeClasspath
+	mainClass = 'pama1234.unfold.logic.UnfoldLogicSelfCheck'
+}
+
 // configure the maven publication
 publishing {
 	publications {

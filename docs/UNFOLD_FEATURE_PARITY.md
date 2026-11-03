@@ -51,7 +51,7 @@
 | `SCALE_STEP_MULTIPLIER` | `:15` | 是 | `UnfoldConfig.java:29,31` | 正常 |
 | `MIN_DISTANCE` | `:18` | 是 | `GameRendererMixin.java:37` | 正常 |
 | `MAX_DISTANCE` | `:19` | 是 | `GameRendererMixin.java:37` | 正常 |
-| `AUTO_THIRD_PERSON` | `:20` | **否** | 全仓仅声明处出现 | **声明未用**：第三人称切换在 `UnfoldModClient.java:165-166` 硬编码，把该常量设为 `false` 不会生效 |
+| `AUTO_THIRD_PERSON` | `:20` | 是（本次修复） | `UnfoldModClient.java:165-169` | **已从「声明未用」改为生效**：进入展开模式时按该字段决定是否切第三人称 |
 
 ## 3. 网络包对比
 
@@ -68,7 +68,7 @@
 ### A. 可直接做（改动明确、风险低）
 
 - **A1 README 键位过时**：README 写「按 F 切换」，实际是 V（`UnfoldModClient.java:35`）。只需改文档或键位，二选一，不涉及逻辑。
-- **A2 `AUTO_THIRD_PERSON` 未读**：把 `UnfoldModClient.java:165-166` 的第三人称切换包在该常量下（进入与退出各一处判断）。一行改动即可让声明生效。
+- **A2 `AUTO_THIRD_PERSON` 未读**：已修复。`UnfoldModClient.java:165-169` 现在按该字段决定是否切换到第三人称。
 
 ### B. 需先定语义或成本较高
 

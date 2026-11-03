@@ -162,8 +162,11 @@ public class UnfoldModClient implements ClientModInitializer {
 
                 UnfoldMod.LOGGER.info("Unfold Mode Activated: {} (Direction: {})", UnfoldManager.currentMode, UnfoldManager.currentDirection.name());
 
-                originalPerspective = client.options.getPerspective();
-                client.options.setPerspective(Perspective.THIRD_PERSON_BACK);
+                originalPerspective = null;
+                if (UnfoldConfig.AUTO_THIRD_PERSON) {
+                    originalPerspective = client.options.getPerspective();
+                    client.options.setPerspective(Perspective.THIRD_PERSON_BACK);
+                }
 
             } else {
                 UnfoldMod.LOGGER.info("Unfold Mode Deactivated");
