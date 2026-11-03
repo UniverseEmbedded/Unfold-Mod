@@ -13,8 +13,8 @@ import pama1234.unfold.logic.UnfoldManager;
 
 /**
  * 服务端权威切层的第三种回执：位置包拉回。
- * 服务端在 ServerPlayNetworkHandler.onPlayerMove 里判定 moved wrongly / moved too quickly 后，
- * 会用 requestTeleport 发 PlayerPositionLookS2CPacket 把客户端拉回服务端位置。
+ * 服务端的移动校验判定 moved wrongly / moved too quickly 后，
+ * 会下发 PlayerPositionLookS2CPacket 把客户端拉回服务端位置。
  * 这里在包应用之后（TAIL）比较最终位置与在途预测：
  * 等于预测目标 -> 视为服务端接受；落在别处 -> 视为拉回，丢弃预测且不回写。
  */

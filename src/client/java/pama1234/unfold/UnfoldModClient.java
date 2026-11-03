@@ -188,7 +188,7 @@ public class UnfoldModClient implements ClientModInitializer {
      * 处理服务端对切层请求的回执，按拒绝原因决定本地位置处置。
      *
      * <ul>
-     *   <li>{@code NONE}：服务端已执行 player.teleport，权威位置随后由 PlayerPositionLook 包落地；
+     *   <li>{@code NONE}：服务端已执行 player.teleport，权威位置随后由 PlayerPositionLookS2CPacket 包落地；
      *       本地预测转为已确认，不再回写。</li>
      *   <li>{@code DISTANCE_EXCEEDED}、{@code COLLISION}：位置本身不可接受，回退到预测前位置，
      *       避免客户端停在越界或几何体内的未授权坐标上。</li>

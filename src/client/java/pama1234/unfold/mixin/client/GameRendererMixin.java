@@ -27,7 +27,8 @@ public abstract class GameRendererMixin {
     private MinecraftClient client;
 
     private Matrix4f createUnfoldOrthoMatrix() {
-        // [修改] 从 UnfoldConfig.SCALE (常量) 改为 UnfoldConfig.scale (可变字段)
+        // [修改] ortho 尺寸改用 UnfoldConfig.scale：它是可调字段（由 changeScale 修改），
+        // 不是固定的编译期常量；之前用的是一个已不存在的 SCALE 常量。
         float scale = UnfoldConfig.scale;
         float aspectRatio = (float) this.client.getWindow().getFramebufferWidth() / (float) this.client.getWindow().getFramebufferHeight();
         float width = scale * aspectRatio;

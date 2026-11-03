@@ -3,7 +3,7 @@ package pama1234.unfold.logic;
 import net.minecraft.util.math.MathHelper;
 
 public class UnfoldConfig {
-    // --- [修改] 将固定的SCALE常量变为可变的scale字段 ---
+    // --- [修改] scale 是可调字段（由 changeScale 修改），不是编译期常量 ---
     public static float scale = 8.0f; // 默认缩放值
 
     // --- [新增] 从OrthoCam借鉴的缩放参数，用于控制缩放行为 ---

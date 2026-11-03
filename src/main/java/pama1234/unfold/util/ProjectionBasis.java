@@ -43,7 +43,8 @@ public final class ProjectionBasis {
         double yawRad = yawDegrees * DEG_TO_RAD;
         double pitchRad = pitchDegrees * DEG_TO_RAD;
 
-        // 与旧 getUnfoldAxisDirection 相同的 Minecraft 相机前向公式。
+        // 与 UnfoldTeleportLogic.getUnfoldAxisDirection 一致的 Minecraft 相机前向公式。
+        // 后者只转调 ProjectionBasis.of(...).axis()，本类才是该公式的唯一实现。
         this.axis = new Vec3d(
                 -Math.sin(yawRad) * Math.cos(pitchRad),
                 -Math.sin(pitchRad),
