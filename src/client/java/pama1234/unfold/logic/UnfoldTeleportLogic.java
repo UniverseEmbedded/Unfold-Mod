@@ -37,6 +37,10 @@ public class UnfoldTeleportLogic {
     private static final double VANILLA_DELTA_EPSILON = 1.0e-6;
     // 规格 A4：有输入时，原版投影位移在期望方向上的最小进度（[推断]，规格未给幅度）。
     private static final double VANILLA_PROGRESS_EPSILON = 1.0e-4;
+    // 卡点 1：候选横向行进前瞻的距离，与 isAboutToCollideHorizontally 的触发前瞻一致。
+    private static final double LATERAL_LOOKAHEAD = 0.2;
+    // 速度或水平分量小于该值时视为没有水平移动意图（与既有触发判定一致）。
+    private static final double MIN_HORIZONTAL_SPEED_SQ = 0.001;
 
     /**
      * 主入口点，在每个客户端Tick（游戏帧）中调用，用于检查并执行可能的瞬移操作。
@@ -423,6 +427,21 @@ public class UnfoldTeleportLogic {
      * 与 {@link #tryCandidate} 的区别：不把层顶面当作站立面，
      * 因此不经过 isSafePlatform 粗筛；支撑关系完全由 {@link #isCandidateClear} 判定。
      * [推断] 越过该层的距离取碰撞箱半宽沿 d 的水平投影，保证完整碰撞箱退出层表面。
+     *
+     * 卡点 1：候选必须在触发方向（水平实际移动方向）上留有行进余量。
+     * 触发由 {@link #isAboutToCollideHorizontally} 按速度方向给出，而候选只在 p+λd 上，
+     * 两者方向不同；若不在这里校验横向余量，切层只换了不可见深度，
+     * 玩家仍会被触发时的那面墙挡住，触发与结果不一致。
+     *
+     * 卡点 3（A5 语义）：A5 只验证终点，不验证从 p_desired 到候选的越层路径。
+     * 本仓库判定“允许穿层”：候选 λ 由 tExit + clearance 给出，必然越过证据层；
+     * 若不允许，则水平候选恒空，FEZ 深度切层玩法不成立。允许的依据是越过方向就是相机深度轴 d，
+     * 该方向正是投影 Π 压缩掉的方向，中间层在画面上不可见也不可分辨。
+     * 终点仍由 {@link #isCandidateClear} 按完整碰撞箱校验，穿层后不会把玩家留在几何体内；
+     * 代价是起点与终点之间的其它层不会逐层检查。
+     * 若将来改判“不允许穿层”，可在不引入新依赖的前提下用 {@code checkHorizontalWalk} 的区间列表做
+     * 路径连续性检查：该列表按 tEntry 升序，合法越层要求所有 tEntry <= chosen.tExit() 的区间
+     * 都属于 chosen.blockPos()（同一方块的多个包围盒视为同一层）；出现其它方块即拒绝。本实现未加。
      */
     private static Vec3d tryHorizontalCandidate(ClientPlayerEntity player, ClientWorld world, ProjectionBasis basis,
                                                 LayerRaycaster.LayerInterval interval, double directionSign) {
@@ -437,6 +456,17 @@ public class UnfoldTeleportLogic {
         }
         // 候选脚底高度就是其世界 Y；支撑面必须与它一致（A5 第 6、7 步）。
         if (!isCandidateClear(player, world, candidate, candidate.y)) {
+            return null;
+        }
+        // 卡点 1：触发方向与候选方向不同，候选必须在该方向上留出与触发前瞻相同的余量。
+        Vec3d horizontal = new Vec3d(player.getVelocity().x, 0.0, player.getVelocity().z);
+        if (horizontal.lengthSquared() < MIN_HORIZONTAL_SPEED_SQ) {
+            return null;
+        }
+        Box lateralBox = player.getBoundingBox()
+                .offset(candidate.subtract(player.getPos()))
+                .offset(horizontal.normalize().multiply(LATERAL_LOOKAHEAD));
+        if (!world.isSpaceEmpty(player, lateralBox)) {
             return null;
         }
         return candidate;
@@ -465,6 +495,10 @@ public class UnfoldTeleportLogic {
      * getBlockCollisions / getEntityCollisions 用于补充判定，findSupportingBlockPos 只作辅助。
      * 碰撞形状全部通过玩家实体对应的 ShapeContext / Entity 参数计算，不替换成独立的
      * getBoundingBoxes() 结果。
+     *
+     * 卡点 3：本方法只证明终点安全，不证明从玩家原位到终点的越层路径。
+     * 越层是否允许是玩法判断，本仓库判定“允许”，理由与不采用时的检查做法见
+     * {@link #tryHorizontalCandidate} 的方法注释。
      *
      * @param candidate 候选位置（玩家脚底锚点）。
      * @param feetY     层证据给出的支撑面高度。
@@ -620,6 +654,9 @@ public class UnfoldTeleportLogic {
      * - 正向射线 end = p + MAX_DISTANCE·d，tEntry/tExit 沿 +d 度量，候选 λ = +(tExit+clearance)；
      * - 反向射线 end = p - MAX_DISTANCE·d，tEntry/tExit 沿 -d 度量，候选 λ = -(tExit+clearance)。
      *
+     * 卡点 2：负方向在同一实现内覆盖，两个方向都只经 {@link #candidateAtLambda} 重建候选，
+     * 并同样经过 1e-6 的 Π 硬检查（没有为负 λ 放宽容差）。
+     *
      * @param player 客户端玩家实体。
      * @param world  客户端世界。
      * @return 通过 A5 的候选位置；没有则返回 {@code null}。
@@ -670,8 +707,16 @@ public class UnfoldTeleportLogic {
      * 若把触发条件限定为 d 方向，会漏掉该模式主要的横向受阻情形。
      * 因此这里只要求“水平方向即将碰撞”，不要求碰撞方向等于 d。
      *
-     * 代价：触发面变宽，进入切层判定的碰撞可能与该次深度搜索无直接关系；
-     * 是否放行仍由 A5 终点判定，而 A5 不检查横向路径是否因此解开（见卡点，本次未动）。
+     * 卡点 1 的二选一：选“让搜索覆盖 strafe 方向”，而不是“触发改沿 d”。
+     * 依据是代码事实：水平模式每 tick 都把速度写成 {@code strafeAxis * 0.2}，
+     * 速度在 d 上没有分量；沿 d 做碰撞前瞻将永远不触发，水平地面穿越整条路径失效。
+     * 而沿 strafe 直接搜索又违反 A3：strafe = ±e_r，沿 e_r 的任何位移都会改变 Π。
+     * 因此合规的“覆盖”是：候选仍只沿 d 换深度，但在候选处按触发方向做同样的
+     * {@link #LATERAL_LOOKAHEAD} 前瞻（见 {@link #tryHorizontalCandidate}），
+     * 只有切层后的位置在该方向上走得动，才算这次触发被真正解开。
+     *
+     * 代价：触发面变宽，且横向前瞻是终点处的静态检测，不验证从原位到候选之间的横向路径；
+     * 候选数量会减少。
      *
      * @param player 客户端玩家实体。
      * @param world  客户端世界。
@@ -681,8 +726,8 @@ public class UnfoldTeleportLogic {
         Vec3d moveVec = player.getVelocity();
         Vec3d horizontal = new Vec3d(moveVec.x, 0.0, moveVec.z);
         // 速度太小视为没有水平移动意图。
-        if (horizontal.lengthSquared() < 0.001) return false;
-        Box futureBox = player.getBoundingBox().offset(horizontal.normalize().multiply(0.2));
+        if (horizontal.lengthSquared() < MIN_HORIZONTAL_SPEED_SQ) return false;
+        Box futureBox = player.getBoundingBox().offset(horizontal.normalize().multiply(LATERAL_LOOKAHEAD));
         // 规格 A5：碰撞形状必须使用实体对应的 ShapeContext（这里用实体参数重载）。
         return !world.isSpaceEmpty(player, futureBox);
     }
