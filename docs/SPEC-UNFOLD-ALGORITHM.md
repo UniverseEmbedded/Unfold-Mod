@@ -7,7 +7,7 @@
 - **已证实**：能指向仓库内的实现（文件名与方法名），或能指向静态推导（代数/字节码/数值计算）。不要求运行过游戏。
 - **推断**：设计取舍、未做运行时验证的结论，或数值选用的合理性判断。推断不等于错误，但评审时应按推断对待。
 
-本文只描述现状，不提出新的行为，也不修改任何代码。
+本文以描述现状为主；第 7 节记录已落地的行为变更。本文不提出尚未落地的行为，也不修改任何代码。
 
 ## 0. 实现落点
 
@@ -99,6 +99,8 @@ p(λ) = anchor + λ d
 `isSafePlatform` 的“站立处与上方一格为空气”只作前置粗筛，不能当作安全证明；最终由完整碰撞箱判定承担。（已证实：代码注释与调用顺序。）
 
 垂直模式下探测起点取玩家水平四角，向外偏移半个宽度加 `EPSILON`，以保证射线从碰撞箱外出发。（已证实：`getVerticalProbeOrigins`。）
+
+垂直 / 斜向模式在主 handler 返回 `null` 后，还会兜底尝试三条竖直射线动作路径（跳跃上探、边缘下落、空中侧跨）。它们同样按本节 1–5 的流程由层顶面反解 λ，见 7.1。（已证实：`tryVerticalLayerActions`。）
 
 ### 2.3 水平：λ 由沿 d 的层区间给出
 
@@ -225,11 +227,13 @@ p(λ) = anchor + λ d
 
 **`MAX_REQUEST_DISTANCE` 的复核结论**（已证实：由代码与数值计算推出）：
 
-- 水平模式：`λ = tExit + clearance ≤ 64 + 0.5·width·(|d.x|+|d.z|) + 0.01`，玩家宽度 0.6、预设水平视角时约 `64.31`。
-- 垂直模式：`d ∥ Y`，`λ = Δy / |d.y| ≤ 64`。
+- 水平模式：`λ = tExit + clearance ≤ 64 + 0.5·width·(|d.x|+|d.z|) + 0.01`，玩家宽度 0.6、预设水平视角时约 `64.31`。该模式只走沿 d 的深度切层；三条竖直射线路径不在此模式调用（`candidateOnLayer` 在 `canChangeWorldY() == false` 时返回 null）。
+- 垂直模式：`d ∥ Y`，`λ = Δy / |d.y| ≤ 64`；三条竖直射线路径同样满足该界。
 - 斜向模式：主路径沿 ±d 取证据，探测起点距玩家不超过约 0.31 格，因此 `λ ≤ 64 + 0.31·cos(pitch) ≈ 64.26`。
-- 斜向模式里的潜行下落与空中侧向跨越使用**竖直**射线取层证据，但它们的调用点是 `handleHorizontalTeleport`，此时基为水平（`d⊥Y`），`candidateOnLayer` 在 `canChangeWorldY() == false` 时直接返回 `null`，不产生候选。因此这类路径不参与合法 λ 上界（详见 5.1 F2）。
-- 结论：合法候选的位移上界约 65 格（64.31 再加不计入射线的探针/辅助线余量），256 约为其 4 倍，对正常切层不生效，只拦明显伪造的请求。若要让上限贴合玩法，可下调到约 128；本次不改代码（推断：下调建议未实施）。
+- 斜向模式也启用三条竖直射线路径（`d.y ≠ 0`，见 `UnfoldTeleportLogic.tryVerticalLayerActions`）：竖直射线长度 64 只约束世界 Y 差，`λ = Δy / d.y`，而 `d.y = sin(35.26438968°) ≈ 0.57735`，故 `λ ≤ 64 / 0.57735 ≈ 110.9`；位移为 `|λd| = λ`。
+- 结论：合法候选的位移上界约 111 格，256 约为其 2.3 倍，对正常切层不生效，只拦明显伪造的请求。若要让上限贴合玩法，可下调到约 128；本次不改代码（推断：下调建议未实施）。
+
+**上一版为什么写 65**：65 是「三条竖直射线路径被锁在水平基 `d⊥Y` 下、因而恒不产生候选」这一装配事实的产出上界（只剩水平深度切层 `64.31` 再加余量），不是算法的几何上界。把恒空组合排除在外、再用剩余路径的最大值充当全局上界，等于把一处调用位置错误当成设计约束（即 5.1 F2）。修复后该组合不再存在，上界按几何推导回到约 111。
 
 ### 5.1 规格—代码常量对账
 
@@ -238,7 +242,7 @@ p(λ) = anchor + λ d
 | 常量 | 规格值 | 代码值（file:line） | 结论 |
 | --- | --- | --- | --- |
 | `MAX_DISTANCE` | `64.0` | `64.0`（`UnfoldTeleportLogic.java:29`） | 一致 |
-| `MAX_REQUEST_DISTANCE` | `256.0` | `256.0`（`TeleportTargetValidator.java:65`） | 一致 |
+| `MAX_REQUEST_DISTANCE` | `256.0` | `256.0`（`TeleportTargetValidator.java:70`） | 一致 |
 | `SURFACE_TOLERANCE` | `1.0e-4` | `1.0e-4`（`TeleportTargetValidator.java:43`；客户端引用见 `UnfoldTeleportLogic.java:36`） | 一致 |
 | `PROJECTION_TOLERANCE` | `1.0e-6` | `1.0e-6`（`UnfoldTeleportLogic.java:33`） | 一致 |
 | `AUTHORITY_TOLERANCE` | `1.0e-4` | `1.0e-4`（`ClientPlayNetworkHandlerMixin.java:25`） | 一致 |
@@ -255,9 +259,9 @@ p(λ) = anchor + λ d
 
 对账过程中没有发现任何字面量值不一致。另有三项**非值差异**的发现：
 
-- **F1（文档/注释错，已改）**：上一版把合法位移上界写成“约 111（再由探针偏移加到 112）”。该推导混用了“竖直射线取证据 + 斜向基反解 λ”这一组合，而该组合在当前模式装配下不产生候选。按代码事实，上界约 65。已改本文件与两处代码注释（`TeleportTargetValidator` 的 `MAX_REQUEST_DISTANCE` 注释、`UnfoldMod` 接收器注释），只改文字，不改行为。
-- **F2（代码实况，仅记录，未改代码）**：`checkHorizontalJump`、`checkHorizontalSneak`、`checkHorizontalAirStrafe` 均只在 `HORIZONTAL` 模式下调用，而该模式的基恒为 `d⊥Y`；`candidateOnLayer` 对这种基直接返回 `null`，所以这三条路径在当前装配下无法产出候选。是否属于预期玩法需要单独判断，本轮不动代码。（已证实：调用点与 `canChangeWorldY` 实现。）
-- **F3（同值重复，仅记录）**：`checkHorizontalAirStrafe` 用字面量 `0.001`（`UnfoldTeleportLogic.java:777`）而不是常量 `MIN_HORIZONTAL_SPEED_SQ`，两者数值相同，无行为差异。
+- **F1（文档/注释取值反复，已收敛）**：位移上界经历 111 → 65 → 111。111 是几何上界；65 是对当时装配的产出上界，而该装配里三条竖直射线路径恒不产生候选（见 F2），不能代表算法。F2 修复后恢复 111，本文件与 `TeleportTargetValidator` 的 `MAX_REQUEST_DISTANCE` 注释、`UnfoldMod` 接收器注释三处一致。
+- **F2（调用位置错，已修复）**：`checkLayerJump`（原 `checkHorizontalJump`）、`checkLayerSneak`（原 `checkHorizontalSneak`）、`checkLayerAirStrafe`（原 `checkHorizontalAirStrafe`）此前只在 `handleHorizontalTeleport` 内调用，该模式基恒为 `d⊥Y`，`candidateOnLayer` 直接返回 `null`，属“调用可达但候选恒空”。函数体未改，只改装配：`checkAndPerformTeleport` 在 `switch` 之后加兜底 `if (targetPos == null && basis.canChangeWorldY()) targetPos = tryVerticalLayerActions(player, world);`（`UnfoldTeleportLogic.java:92-97`）；helper 按原条件与优先级依次尝试 跳跃上探 → 边缘下落 → 空中侧跨（`UnfoldTeleportLogic.java:216-236`）；水平 handler 只保留地面穿越。修复引入的新行为见 7.1。（已证实：代码。）
+- **F3（同值重复，仅记录）**：`checkLayerAirStrafe` 用字面量 `0.001`（`UnfoldTeleportLogic.java:813`）而不是常量 `MIN_HORIZONTAL_SPEED_SQ`，两者数值相同，无行为差异。
 
 ## 6. 已知未验证项的静态筛查
 
@@ -275,7 +279,20 @@ p(λ) = anchor + λ d
 | 8 抑制/前瞻参数 | 必须联机 | 2.5、0.2 与层滞回单调性的代价只能由玩法数据判断。缺失观测：误抑制/误触发计数与“同一次跳跃尝试反向换层”的次数（推断） |
 | 9 超时窗口对齐 | 必须联机 | 两端数值都是 20 tick。（已证实：代码）缺失观测：回执延迟分布、超时触发次数与两端时钟偏差（推断） |
 | 10 `ISO_PITCH_DEGREES` | 静态已闭合（基与相机） | 相机与基共用同一常量，不存在“基角度与相机角度不一致”的问题；数值本身是 arctan(1/√2)。（已证实：代码与代数）是否为期望的美术角度属于设计判断（推断） |
-| 11 `MAX_REQUEST_DISTANCE` 偏宽 | 静态已闭合（上界） | 上界约 65 由射线长度与预设视角推出，256 约为 4 倍。（已证实：推导）下调与否是设计决定（推断） |
+| 11 `MAX_REQUEST_DISTANCE` 偏宽 | 静态已闭合（上界） | 上界约 111 由射线长度、预设视角与 `d.y` 推出，256 约为 2.3 倍。（已证实：推导）下调与否是设计决定（推断） |
 | 12 层证据与实体碰撞时序 | 部分静态 | 客户端 tick 末、服务端包处理时读取，读点不同。（已证实：代码）缺失观测：同一 tick 内两端 `getEntityCollisions` 结果的差异样本（推断） |
 
 筛查结果：3 条静态已闭合（1、10、11），5 条部分静态（2、3、4、7、12），4 条必须联机实测（5、6、8、9）。必须联机项各自缺的观测点已写在上表。
+
+## 7. 变更记录
+
+### 7.1 F2 修复：竖直射线动作路径改挂到垂直 / 斜向（提交 `d561702`）
+
+这是一次**新增行为**，不只是文字修正。修复前三条路径挂在水平模式，永远不产生候选；修复后垂直 / 斜向模式在主 handler 返回 `null` 时会兜底尝试它们，因此原本在这两种模式下「原地不动」的部分情形，现在可能变成一次切层。
+
+- **生效位置**：`UnfoldTeleportLogic.checkAndPerformTeleport` 的 `switch (currentMode)` 之后，条件为 `targetPos == null && basis.canChangeWorldY()`（`UnfoldTeleportLogic.java:92-97`）。
+- **触发条件**（三条与修复前完全相同）：① `player.jumping && velocity.y > 0`；② `player.isSneaking() && isAtEdge(...)`；③ `!player.isOnGround()` 且水平速度平方 ≥ `MIN_HORIZONTAL_SPEED_SQ`。
+- **优先级**：跳跃上探 → 边缘下落 → 空中侧跨，任一命中即返回，不再尝试后续路径。主 handler 已命中时不进入兜底，因此每 tick 至多产生一个目标。
+- **对现有垂直 / 斜向切层的影响**：主路径（`handleVerticalTeleport` / `handleIsometricTeleport`）先执行，兜底只在其返回 `null` 时执行，不覆盖已有结果；但会对原本无结果的 tick 新增一次切层机会。请求仍受 `UnfoldModClient` 的三道限流（每 tick 一次、pending 未确认不重发、请求间隔冷却）约束，不改变请求频率上限；候选仍走 A5 第 1–8 步与 `tryCandidate` 的层滞回。
+- **位移上界变化**：斜向模式由约 64 变为约 111（`λ = Δy/d.y ≤ 64/0.57735 ≈ 110.9`），`MAX_REQUEST_DISTANCE = 256` 仍大于该值，不构成拦截。
+- **未验证**：本记录全部为静态结论；实际触发频率、是否误触以及手感未经运行观测（推断）。
