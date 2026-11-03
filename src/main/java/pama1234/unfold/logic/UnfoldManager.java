@@ -36,8 +36,10 @@ public class UnfoldManager {
      */
     public static final int TELEPORT_REQUEST_INTERVAL_TICKS = 2;
     /**
-     * 待确认预测的超时（客户端 tick）。依据：与服务端 handlePendingTeleport 的
-     * 20 tick 重发窗口一致，超过这个窗口仍未回执就认定丢失。
+     * 待确认预测的超时（客户端 tick）。依据：请求发出到服务端主线程处理、回执到达
+     * 通常只需 1–2 tick，20 tick 留出足够余量；超过仍未回执即认定丢失。
+     * 本超时只作用于客户端；服务端没有重发窗口，重发抑制由 pendingTeleportTarget
+     * 与 teleportRequestCooldownTicks 两道限流保证。
      */
     public static final int PENDING_TELEPORT_TIMEOUT_TICKS = 20;
 
