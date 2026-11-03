@@ -89,6 +89,13 @@ public class UnfoldTeleportLogic {
                 break;
         }
 
+        // 三条竖直射线动作路径（跳跃上探、边缘下落、空中侧跨）只在 d.y≠0 时有候选：
+        // 它们的候选由层顶面沿展开轴反解 λ，水平基 d⊥Y 下 candidateOnLayer 恒返回 null。
+        // 因此不作为某一模式的主逻辑，而是在垂直 / 斜向模式的主路径无结果后兜底。
+        if (targetPos == null && basis.canChangeWorldY()) {
+            targetPos = tryVerticalLayerActions(player, world);
+        }
+
         // 如果找到了有效的瞬移目标位置，则执行瞬移。
         if (targetPos != null) {
             teleportPlayer(player, targetPos);
@@ -169,7 +176,10 @@ public class UnfoldTeleportLogic {
 
     /**
      * 处理水平展开模式（FEZ风格）下的瞬移逻辑。
-     * 包含空中跨越、边缘下落、地面穿越等多种水平方向上的瞬移。
+     * 水平模式 d⊥Y，能在此模式内产出候选的只有沿 d 的深度切层（地面穿越）。
+     * 跳跃上探、边缘下落、空中侧跨三条路径都以竖直层顶面反解 λ，
+     * 在本模式下 {@link #candidateOnLayer} 恒返回 {@code null}，
+     * 因此它们不在本方法内调用，见 {@link #tryVerticalLayerActions}。
      *
      * @param player 客户端玩家实体。
      * @param world  客户端世界。
@@ -177,32 +187,52 @@ public class UnfoldTeleportLogic {
      */
     // --- 水平模式逻辑 ---
     private static Vec3d handleHorizontalTeleport(ClientPlayerEntity player, ClientWorld world) {
-        // 1. 跳跃到上方：当玩家意图向上跳跃时（player.jumping为true且Y速度为正）。
-        if (player.jumping && player.getVelocity().y > 0) {
-            Vec3d target = checkHorizontalJump(player, world);
-            if (target != null) return target;
-        }
-
-        // 2. 边缘下落：当玩家潜行且位于方块边缘时，尝试向下瞬移。
-        if (player.isSneaking() && isAtEdge(player, world)) {
-            Vec3d target = checkHorizontalSneak(player, world);
-            if (target != null) return target;
-        }
-
-        // 3. 地面穿越：水平模式下 d⊥Y，候选只能在 p_desired + λd 上保持同一世界 Y；
-        //    触发按任意水平行进方向判定（不要求等于 d），候选仍只沿 d 搜索。
+        // 地面穿越：水平模式下 d⊥Y，候选只能在 p_desired + λd 上保持同一世界 Y；
+        // 触发按任意水平行进方向判定（不要求等于 d），候选仍只沿 d 搜索。
         if (player.isOnGround() && isAboutToCollideHorizontally(player, world)) {
             Vec3d target = checkHorizontalWalk(player, world);
             if (target != null) return target;
         }
 
-        // 4. 【新增】悬空侧向跨越 (核心FEZ玩法)：当玩家不在地面上时，尝试进行水平方向的视错觉瞬移。
-        if (!player.isOnGround()) {
-            Vec3d target = checkHorizontalAirStrafe(player, world);
+        return null; // 没有找到合适的瞬移目标。
+    }
+
+    /**
+     * 竖直射线动作路径的统一入口：跳跃上探、边缘下落、空中侧跨。
+     *
+     * 这三条路径都用竖直射线取层证据，再由层顶面反解 λ，只在 {@code d.y≠0}
+     * （垂直 / 斜向模式）下有定义。水平模式的基为 {@code d⊥Y}，
+     * {@link #candidateOnLayer} 会因 {@code canChangeWorldY() == false} 直接返回 {@code null}，
+     * 调用它们不产生任何候选。
+     *
+     * 因此它们不绑定在某一种模式的主逻辑里，而是作为垂直 / 斜向 mode handler 的兜底：
+     * 主路径没有找到候选后，按原有触发条件与优先级依次尝试一次，
+     * 任一命中即结束，不为同一次切层重复投放请求。
+     *
+     * @param player 客户端玩家实体。
+     * @param world  客户端世界。
+     * @return 第一条命中的候选；三条都不命中则返回 {@code null}。
+     */
+    private static Vec3d tryVerticalLayerActions(ClientPlayerEntity player, ClientWorld world) {
+        // 跳跃上探：向上跳跃时，沿竖直射线找上方可站立的层。
+        if (player.jumping && player.getVelocity().y > 0) {
+            Vec3d target = checkLayerJump(player, world);
             if (target != null) return target;
         }
 
-        return null; // 没有找到合适的瞬移目标。
+        // 边缘下落：潜行站在方块边缘时，从边缘空气位向下找可站立的层。
+        if (player.isSneaking() && isAtEdge(player, world)) {
+            Vec3d target = checkLayerSneak(player, world);
+            if (target != null) return target;
+        }
+
+        // 空中侧跨：不在地面且有水平移动意图时，从身体前方向下找层。
+        if (!player.isOnGround()) {
+            Vec3d target = checkLayerAirStrafe(player, world);
+            if (target != null) return target;
+        }
+
+        return null;
     }
 
     /**
@@ -603,14 +633,16 @@ public class UnfoldTeleportLogic {
     }
 
     /**
-     * 检查水平模式下玩家跳跃时是否可以瞬移到上方平台。
-     * 向上发射一条射线探测。
+     * 跳跃上探：玩家向上跳跃时，从当前位置向上发射一条竖直射线，逐层寻找上方可站立的平台。
+     * 只在 {@code d.y≠0}（垂直 / 斜向模式）下由 {@link #tryVerticalLayerActions} 调用。
+     * 原名 {@code checkHorizontalJump} 与实际语义不符：它在水平基 {@code d⊥Y} 下
+     * 会因 {@link #candidateOnLayer} 返回 null 而恒无候选。
      *
      * @param player 客户端玩家实体。
      * @param world  客户端世界。
      * @return 如果找到安全目标则返回目标位置 {@code Vec3d}，否则返回 {@code null}。
      */
-    private static Vec3d checkHorizontalJump(ClientPlayerEntity player, ClientWorld world) {
+    private static Vec3d checkLayerJump(ClientPlayerEntity player, ClientWorld world) {
         ProjectionBasis basis = ProjectionBasis.of(UnfoldManager.currentDirection);
         Vec3d start = player.getPos();
         // 从玩家当前位置向上发射 MAX_DISTANCE 长的射线。
@@ -625,14 +657,16 @@ public class UnfoldTeleportLogic {
     }
 
     /**
-     * 检查水平模式下玩家潜行时是否可以瞬移到后方下方平台。
-     * 主要模拟“信仰之跃”或从平台边缘下落。
+     * 边缘下落：玩家潜行站在方块边缘时，先确认后方有层证据，再从边缘空气位向下找可站立的层。
+     * 只在 {@code d.y≠0}（垂直 / 斜向模式）下由 {@link #tryVerticalLayerActions} 调用。
+     * 原名 {@code checkHorizontalSneak} 与实际语义不符：它在水平基 {@code d⊥Y} 下
+     * 会因 {@link #candidateOnLayer} 返回 null 而恒无候选。
      *
      * @param player 客户端玩家实体。
      * @param world  客户端世界。
      * @return 如果找到安全目标则返回目标位置 {@code Vec3d}，否则返回 {@code null}。
      */
-    private static Vec3d checkHorizontalSneak(ClientPlayerEntity player, ClientWorld world) {
+    private static Vec3d checkLayerSneak(ClientPlayerEntity player, ClientWorld world) {
         ProjectionBasis basis = ProjectionBasis.of(UnfoldManager.currentDirection);
         // 获取当前展开模式的“深度”轴方向（通常是与玩家视角相对的方向）。
         Vec3d unfoldAxis = getUnfoldAxisDirection(UnfoldManager.currentDirection);
@@ -763,14 +797,16 @@ public class UnfoldTeleportLogic {
     }
 
     /**
-     * 【新增】检测玩家在空中进行侧向移动时，是否可以瞬移到视觉上相邻的平台。
-     * 这是实现 FEZ 风格“空中跨越”的核心逻辑。
+     * 空中侧跨：玩家在空中且有水平移动意图时，从身体前方向下找视觉上相邻的平台。
+     * 只在 {@code d.y≠0}（垂直 / 斜向模式）下由 {@link #tryVerticalLayerActions} 调用。
+     * 原名 {@code checkHorizontalAirStrafe} 与实际语义不符：它在水平基 {@code d⊥Y} 下
+     * 会因 {@link #candidateOnLayer} 返回 null 而恒无候选。
      *
      * @param player 客户端玩家实体。
      * @param world  客户端世界。
      * @return 如果找到安全目标则返回目标位置 {@code Vec3d}，否则返回 {@code null}。
      */
-    private static Vec3d checkHorizontalAirStrafe(ClientPlayerEntity player, ClientWorld world) {
+    private static Vec3d checkLayerAirStrafe(ClientPlayerEntity player, ClientWorld world) {
         // 1. 获取玩家的水平移动方向（忽略Y轴）。
         Vec3d horizontalVelocity = new Vec3d(player.getVelocity().x, 0, player.getVelocity().z);
         // 如果玩家没有明显的水平移动意图，则不执行瞬移。

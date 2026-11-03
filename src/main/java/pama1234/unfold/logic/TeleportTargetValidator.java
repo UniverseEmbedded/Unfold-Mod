@@ -50,15 +50,20 @@ public final class TeleportTargetValidator {
      * <ul>
      *   <li>候选恒为 {@code p_desired + λd}，且 λ 由层证据给出。</li>
      *   <li>水平模式：{@code d ⊥ Y}，λ 直接等于沿 d 的越层距离，
-     *       由 {@code MAX_DISTANCE = 64} 的射线长度加 clearance 约束为约 {@code 64.31}。</li>
-     *   <li>垂直模式：{@code d ∥ Y}，{@code λ = Δy / |d.y| ≤ 64}。</li>
+     *       由 {@code MAX_DISTANCE = 64} 的射线长度加 clearance 约束为约 {@code 64.31}。
+     *       该模式只走地面穿越一条路径；其余三条竖直射线路径不在此模式调用
+     *       （{@code candidateOnLayer} 在 {@code canChangeWorldY() == false} 时返回 null），
+     *       因此水平模式不参与更大的上界。</li>
+     *   <li>垂直模式：{@code d ∥ Y}，{@code λ = Δy / |d.y| ≤ 64}；
+     *       竖直射线动作路径（跳跃上探 / 边缘下落 / 空中侧跨，见
+     *       {@code UnfoldTeleportLogic#tryVerticalLayerActions}）同样满足该界。</li>
      *   <li>斜向模式：主路径沿 ±d 取证据，探测起点距玩家不超过约 0.31 格，
      *       {@code λ ≤ 64 + 0.31·cos(pitch) ≈ 64.26}。
-     *       水平模式里的潜行下落/空中跨越虽然用竖直射线，但其调用点的基为 {@code d⊥Y}，
-     *       {@code candidateOnLayer} 会因 {@code canChangeWorldY() == false} 返回 null，
-     *       不产生候选，因此不参与上界。</li>
+     *       三条竖直射线动作路径在本模式下也启用：竖直射线长度 64 只约束世界 Y 差，
+     *       {@code λ = Δy / d.y}，而 {@code d.y = sin(35.26438968°) ≈ 0.57735}，
+     *       故 {@code λ ≤ 64 / 0.57735 ≈ 110.9}。</li>
      * </ul>
-     * 因此全部合法候选的位移不超过约 65 格（65 < 256），256 不构成玩法约束，
+     * 因此全部合法候选的位移不超过约 111 格（111 < 256），256 不构成玩法约束，
      * 只作为「明显不是在切层」的粗界，防止客户端发来任意坐标。
      * 详细推导见 {@code docs/SPEC-UNFOLD-ALGORITHM.md} 第 5、5.1 节。
      */
