@@ -57,6 +57,12 @@ public class UnfoldTeleportLogic {
             return false;
         }
 
+        // 层滞回（层序号单调性）：落地即结束本次跳跃，清空换层方向。
+        // 因此下面的单调约束只作用在同一次跳跃（离地到落地）之内。
+        if (player.isOnGround()) {
+            UnfoldManager.jumpLayerDirection = 0;
+        }
+
         // 规格 A4：Vanilla 优先。本方法在 END_CLIENT_TICK 调用，
         // 玩家位置已包含本 tick 的 Vanilla 移动与碰撞结果。
         ProjectionBasis basis = ProjectionBasis.of(UnfoldManager.currentDirection);
@@ -414,6 +420,17 @@ public class UnfoldTeleportLogic {
         // 规格 A5：最终 clearance 必须使用完整碰撞箱；粗筛通过不代表安全。
         if (!isCandidateClear(player, world, candidate, feetY)) {
             return null;
+        }
+        // 层滞回（层序号单调性）：Π 相同、世界 Y 不同时，同一次跳跃内只允许沿同一方向换层。
+        // 方向以候选脚底相对玩家脚底的世界 Y 符号为准；同层（含浮点容差内）不算换层。
+        // 约束只在空中生效，落地时已在 checkAndPerformTeleport 清零，不对地面行走追加限制。
+        double deltaY = candidate.y - player.getPos().y;
+        if (!player.isOnGround() && Math.abs(deltaY) > SURFACE_TOLERANCE) {
+            int direction = deltaY > 0 ? 1 : -1;
+            if (UnfoldManager.jumpLayerDirection != 0 && direction != UnfoldManager.jumpLayerDirection) {
+                return null;
+            }
+            UnfoldManager.jumpLayerDirection = direction;
         }
         return candidate;
     }

@@ -147,6 +147,8 @@ public class UnfoldModClient implements ClientModInitializer {
                 // 卡点 4：退出展开模式时清空水平切层记录，避免下次进入时误抑制一次正常切层。
                 UnfoldManager.lastHorizontalCutBlock = null;
                 UnfoldManager.lastHorizontalCutSign = 0.0;
+                // 层滞回：退出时一并清空本次跳跃的换层方向，避免跨会话残留。
+                UnfoldManager.jumpLayerDirection = 0;
                 if (originalPerspective != null) {
                     client.options.setPerspective(originalPerspective);
                 }
