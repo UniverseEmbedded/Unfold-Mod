@@ -46,7 +46,7 @@ public class UnfoldManager {
      * 本地位置只是预测，不是权威结果。
      */
     public static Vec3d pendingTeleportTarget = null;
-    /** 预测前的位置，供服务端拒绝（256 格校验）时回退。 */
+    /** 预测前的位置，供服务端拒绝（距离超限 / 有碰撞）时回退；无支撑拒绝时保持预测位置。 */
     public static Vec3d pendingTeleportOrigin = null;
     /** 待确认预测已持续的客户端 tick 数，用于超时丢弃。 */
     public static int pendingTeleportTicks = 0;

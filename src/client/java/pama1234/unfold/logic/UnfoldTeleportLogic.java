@@ -9,7 +9,6 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
-import net.minecraft.util.shape.VoxelShape;
 import pama1234.unfold.UnfoldMod;
 import pama1234.unfold.event.PlayerTeleportCallback;
 import pama1234.unfold.network.TeleportRequestPayload;
@@ -18,7 +17,6 @@ import pama1234.unfold.util.ViewDirection;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * 此工具类负责处理《Unfold Mod》中的所有玩家瞬移逻辑。
@@ -34,7 +32,8 @@ public class UnfoldTeleportLogic {
     // 规格 A3：Π 不变量的数值比较容差，只用于比较，不作为允许的位移量。
     private static final double PROJECTION_TOLERANCE = 1.0e-6;
     // 规格 A5：脚底与支撑面高度的数值比较容差，只用于比较。
-    private static final double SURFACE_TOLERANCE = 1.0e-4;
+    // 与服务端共用的同一份常量，见 TeleportTargetValidator.SURFACE_TOLERANCE。
+    private static final double SURFACE_TOLERANCE = TeleportTargetValidator.SURFACE_TOLERANCE;
     // 规格 A4：无屏幕方向输入时，判定“原版没有投影位移”的数值阈值。
     private static final double VANILLA_DELTA_EPSILON = 1.0e-6;
     // 规格 A4：有输入时，原版投影位移在期望方向上的最小进度（[推断]，规格未给幅度）。
@@ -379,7 +378,8 @@ public class UnfoldTeleportLogic {
         UnfoldManager.pendingTeleportOrigin = fromPos;
         UnfoldManager.pendingTeleportTicks = 0;
         UnfoldManager.teleportRequestCooldownTicks = UnfoldManager.TELEPORT_REQUEST_INTERVAL_TICKS;
-        // 真正把切层位置提交给服务端；服务端 256 格校验后执行 player.teleport。
+        // 真正把切层位置提交给服务端；服务端做距离粗界与 A5 终点校验后执行 player.teleport，
+        // 拒绝时回执带原因（TeleportResponsePayload），由 UnfoldModClient 决定回退或保持。
         ClientPlayNetworking.send(new TeleportRequestPayload(targetPos));
 
         UnfoldMod.LOGGER.info("Teleported to {} (client prediction, awaiting server authority)", targetPos);
@@ -551,10 +551,14 @@ public class UnfoldTeleportLogic {
     /**
      * 规格 A5：用玩家当前 pose 的完整碰撞箱做最终 clearance。
      *
-     * 检查顺序对应规格 A5 的 1–8；其中 isSpaceEmpty 是主判据，
-     * getBlockCollisions / getEntityCollisions 用于补充判定，findSupportingBlockPos 只作辅助。
-     * 碰撞形状全部通过玩家实体对应的 ShapeContext / Entity 参数计算，不替换成独立的
-     * getBoundingBoxes() 结果。
+     * <p>第 1–7 步（世界高度范围、世界边界、isSpaceEmpty、方块碰撞、实体碰撞、
+     * 支撑存在、支撑顶面 == 脚底 Y）委托给 common 侧唯一实现
+     * {@link TeleportTargetValidator#validateEndpoint}，服务端授权用的是同一份代码，
+     * 两端判定不会分叉。常量 {@link #SURFACE_TOLERANCE} 与检查顺序都来自那里；
+     * 修改本方法或那里时必须同步改另一边。
+     *
+     * <p>第 8 步（投影不变量 Π 复核）只能留在客户端：它依赖 {@link ProjectionBasis}
+     * 与当前展开方向，而服务端没有展开方向，不应据此否决一个位置本身合法的落点。
      *
      * 卡点 3：本方法只证明终点安全，不证明从玩家原位到终点的越层路径。
      * 越层是否允许是玩法判断，本仓库判定“允许”，理由与不采用时的检查做法见
@@ -565,62 +569,17 @@ public class UnfoldTeleportLogic {
      * @return 通过全部检查则返回 {@code true}。
      */
     private static boolean isCandidateClear(ClientPlayerEntity player, ClientWorld world, Vec3d candidate, double feetY) {
-        // 当前 pose 的完整碰撞箱，平移到候选位置。
-        Box box = player.getBoundingBox().offset(candidate.subtract(player.getPos()));
-
-        // 1. 世界合法高度范围。
-        if (box.minY < world.getBottomY() || box.maxY > world.getTopYInclusive() + 1.0) {
+        // 第 1–7 步：与服务端共用的同一份实现。
+        if (TeleportTargetValidator.validateEndpoint(world, player, candidate, feetY) != TeleportTargetValidator.RejectionReason.NONE) {
             return false;
         }
-        // 2. 世界边界。
-        if (!world.getWorldBorder().contains(box)) {
-            return false;
-        }
-        // 3. 主判据：完整空间占用（方块碰撞、实体碰撞与边界的语义由实体参数给出）。
-        if (!world.isSpaceEmpty(player, box)) {
-            return false;
-        }
-        // 4. 实际方块碰撞形状。
-        for (VoxelShape shape : world.getBlockCollisions(player, box)) {
-            if (!shape.isEmpty()) {
-                return false;
-            }
-        }
-        // 5. 实体重叠。
-        for (VoxelShape shape : world.getEntityCollisions(player, box)) {
-            if (!shape.isEmpty()) {
-                return false;
-            }
-        }
-        // 6. 支撑只作辅助：不能单独证明安全，但找不到支撑同样不能放行。
-        Optional<BlockPos> supporting = world.findSupportingBlockPos(player, box);
-        if (supporting.isEmpty()) {
-            return false;
-        }
-        if (Math.abs(supportingTopY(world, player, supporting.get()) - feetY) > SURFACE_TOLERANCE) {
-            return false;
-        }
-        // 7. 当前 pose 底部必须落在层证据给出的支撑面上。
-        if (Math.abs(box.minY - feetY) > SURFACE_TOLERANCE) {
-            return false;
-        }
-        // 8. 投影不变量复核。
+        // 8. 投影不变量复核（客户端独有）。
         ProjectionBasis basis = ProjectionBasis.of(UnfoldManager.currentDirection);
         ProjectionBasis.ScreenPos anchor = basis.project(player.getPos());
         ProjectionBasis.ScreenPos moved = basis.project(candidate);
         double dr = moved.right() - anchor.right();
         double du = moved.up() - anchor.up();
         return dr * dr + du * du <= PROJECTION_TOLERANCE * PROJECTION_TOLERANCE;
-    }
-
-    /** 支撑方块顶面的世界高度；形状通过玩家实体对应的 ShapeContext 取得。 */
-    private static double supportingTopY(ClientWorld world, ClientPlayerEntity player, BlockPos pos) {
-        VoxelShape shape = world.getBlockState(pos).getCollisionShape(world, pos, ShapeContext.of(player));
-        double top = pos.getY();
-        for (Box box : shape.getBoundingBoxes()) {
-            top = Math.max(top, pos.getY() + box.maxY);
-        }
-        return top;
     }
 
     /**

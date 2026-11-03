@@ -12,6 +12,7 @@ import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.Vec3d;
 import org.lwjgl.glfw.GLFW;
+import pama1234.unfold.logic.TeleportTargetValidator;
 import pama1234.unfold.logic.UnfoldConfig;
 import pama1234.unfold.logic.UnfoldManager;
 import pama1234.unfold.logic.UnfoldMode;
@@ -43,10 +44,10 @@ public class UnfoldModClient implements ClientModInitializer {
         ));
 
 
-        // 服务端回执：accept / 256 格拒绝。拉回（moved wrongly / too quickly）由
+        // 服务端回执：接受 / 拒绝（带具体原因）。拉回（moved wrongly / too quickly）由
         // ClientPlayNetworkHandlerMixin 观察权威位置包处理。
         ClientPlayNetworking.registerGlobalReceiver(TeleportResponsePayload.ID, (payload, context) ->
-                context.client().execute(() -> handleTeleportResponse(payload.accepted())));
+                context.client().execute(() -> handleTeleportResponse(payload.reason())));
 
         ClientTickEvents.END_CLIENT_TICK.register(tickClient -> {
 
@@ -184,27 +185,36 @@ public class UnfoldModClient implements ClientModInitializer {
     }
 
     /**
-     * 处理服务端对切层请求的回执。
-     * accepted=true：服务端已执行 player.teleport，权威位置随后由 PlayerPositionLook 包落地；
-     * 本地预测到此转为已确认，不再回写。
-     * accepted=false：256 格校验拒绝。丢弃预测并把本地位置回退到预测前位置，
-     * 避免客户端继续以未获授权的坐标漂移；请求间隔冷却由 discardPendingTeleport 重置。
+     * 处理服务端对切层请求的回执，按拒绝原因决定本地位置处置。
+     *
+     * <ul>
+     *   <li>{@code NONE}：服务端已执行 player.teleport，权威位置随后由 PlayerPositionLook 包落地；
+     *       本地预测转为已确认，不再回写。</li>
+     *   <li>{@code DISTANCE_EXCEEDED}、{@code COLLISION}：位置本身不可接受，回退到预测前位置，
+     *       避免客户端停在越界或几何体内的未授权坐标上。</li>
+     *   <li>{@code NO_SUPPORT}：预测位置没有碰撞，但没有支撑面（服务端层证据与客户端不一致）。
+     *       保持预测位置，交给重力与随后的权威位置包纠正，不在同一 tick 内瞬移回 origin
+     *       以免产生「来回跳」的视觉抖动。</li>
+     * </ul>
+     * 三种拒绝都会丢弃在途预测；请求间隔冷却由 discardPendingTeleport 重置。
      */
-    private static void handleTeleportResponse(boolean accepted) {
+    private static void handleTeleportResponse(TeleportTargetValidator.RejectionReason reason) {
         if (UnfoldManager.pendingTeleportTarget == null) {
             // 过期回执（已超时或被拉回处理过）。
             return;
         }
-        if (accepted) {
+        if (reason == TeleportTargetValidator.RejectionReason.NONE) {
             UnfoldManager.pendingTeleportTarget = null;
             UnfoldManager.pendingTeleportOrigin = null;
             UnfoldManager.pendingTeleportTicks = 0;
             return;
         }
-        ClientPlayerEntity player = MinecraftClient.getInstance().player;
-        if (player != null && UnfoldManager.pendingTeleportOrigin != null) {
-            Vec3d origin = UnfoldManager.pendingTeleportOrigin;
-            player.setPos(origin.x, origin.y, origin.z);
+        if (reason != TeleportTargetValidator.RejectionReason.NO_SUPPORT) {
+            ClientPlayerEntity player = MinecraftClient.getInstance().player;
+            if (player != null && UnfoldManager.pendingTeleportOrigin != null) {
+                Vec3d origin = UnfoldManager.pendingTeleportOrigin;
+                player.setPos(origin.x, origin.y, origin.z);
+            }
         }
         UnfoldManager.discardPendingTeleport();
     }
