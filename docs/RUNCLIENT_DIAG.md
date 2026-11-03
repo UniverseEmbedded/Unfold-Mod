@@ -36,3 +36,9 @@
 ## 运行时注意
 
 LWJGL 在 JDK 24 下输出一条 `[ThreadLocalUtil] Unsupported JNI version detected, this may result in a crash`。本次未因此崩溃，但它记录在日志里。
+
+## 交接（2026-11-03）
+
+- 已结论的算法改造方向：三条竖直射线动作路径（跳跃上探 / 边缘下落 / 空中侧跨）只在 `d.y≠0` 时有候选，已挂到垂直与斜向模式的兜底，水平模式只保留地面穿越；λ 反解单一真源在 `ProjectionBasis.reconstructAtY`。
+- 下次开机第一条：跑 `gradlew runClient`，进创造世界按 `V`，确认画面是否真的变成正交投影视图。这是当前唯一没有闭合的可用性问题。
+- 交接时 commit：`0e6787f`。
