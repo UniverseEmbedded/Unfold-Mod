@@ -61,6 +61,10 @@ public class UnfoldModClient implements ClientModInitializer {
                         teleportCooldown = true;
                     }
                 } else {
+                    // 卡点 4（既有行为，2025-07-09 提交 15e2d8f 起就是这样，本次不改）：
+                    // 冷却在玩家落地时立即解除。水平模式切层后玩家仍在地面，因此下一 tick 就解除，
+                    // 相邻两 tick 内可能再次触发切层。抑制同层正、反向往返的逻辑不在这里，
+                    // 而在 UnfoldTeleportLogic.tryHorizontalCandidate / isReversedHorizontalCut。
                     if (player.isOnGround()) {
                         teleportCooldown = false;
                     }
@@ -140,6 +144,9 @@ public class UnfoldModClient implements ClientModInitializer {
 
             } else {
                 UnfoldMod.LOGGER.info("Unfold Mode Deactivated");
+                // 卡点 4：退出展开模式时清空水平切层记录，避免下次进入时误抑制一次正常切层。
+                UnfoldManager.lastHorizontalCutBlock = null;
+                UnfoldManager.lastHorizontalCutSign = 0.0;
                 if (originalPerspective != null) {
                     client.options.setPerspective(originalPerspective);
                 }

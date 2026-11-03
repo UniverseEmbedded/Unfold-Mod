@@ -39,6 +39,8 @@ public class UnfoldTeleportLogic {
     private static final double VANILLA_PROGRESS_EPSILON = 1.0e-4;
     // 卡点 1：候选横向行进前瞻的距离，与 isAboutToCollideHorizontally 的触发前瞻一致。
     private static final double LATERAL_LOOKAHEAD = 0.2;
+    // 卡点 4：同层反向重穿的抑制半径（[推断]，见 isReversedHorizontalCut）。
+    private static final double REVERSE_CUT_RADIUS = 2.5;
     // 速度或水平分量小于该值时视为没有水平移动意图（与既有触发判定一致）。
     private static final double MIN_HORIZONTAL_SPEED_SQ = 0.001;
 
@@ -442,6 +444,8 @@ public class UnfoldTeleportLogic {
      * 若将来改判“不允许穿层”，可在不引入新依赖的前提下用 {@code checkHorizontalWalk} 的区间列表做
      * 路径连续性检查：该列表按 tEntry 升序，合法越层要求所有 tEntry <= chosen.tExit() 的区间
      * 都属于 chosen.blockPos()（同一方块的多个包围盒视为同一层）；出现其它方块即拒绝。本实现未加。
+     *
+     * 卡点 4：同一层在相邻两 tick 内的反向重穿由 {@link #isReversedHorizontalCut} 抑制。
      */
     private static Vec3d tryHorizontalCandidate(ClientPlayerEntity player, ClientWorld world, ProjectionBasis basis,
                                                 LayerRaycaster.LayerInterval interval, double directionSign) {
@@ -469,7 +473,35 @@ public class UnfoldTeleportLogic {
         if (!world.isSpaceEmpty(player, lateralBox)) {
             return null;
         }
+        // 卡点 4：抑制同一层在相邻两 tick 内的正、反向往返。
+        if (isReversedHorizontalCut(player, interval.blockPos(), directionSign)) {
+            return null;
+        }
+        UnfoldManager.lastHorizontalCutBlock = interval.blockPos();
+        UnfoldManager.lastHorizontalCutSign = directionSign;
         return candidate;
+    }
+
+    /**
+     * 卡点 4：判断这次水平切层是否是“刚切过的同一层、相反方向、且玩家仍在附近”的反向重穿。
+     *
+     * 既有冷却语义是“传送后置位，玩家落地即解除”（UnfoldModClient 的 teleportCooldown，2025-07-09
+     * 提交 15e2d8f 即有），水平切层后玩家仍在地面，冷却下一 tick 就解除，因此正、反向探测
+     * 会在相邻两 tick 对同一层来回切。这里不改冷却语义，只记录上一次水平切层的方块与方向。
+     *
+     * [推断] “附近”取 2.5 格：一次切层后玩家与层中心距离约 1 格上下，2.5 格足以覆盖
+     * 相邻两 tick 的往返，又不会长期压制玩家走远之后回到该处时的正常切层。
+     */
+    private static boolean isReversedHorizontalCut(ClientPlayerEntity player, BlockPos blockPos, double directionSign) {
+        BlockPos lastBlock = UnfoldManager.lastHorizontalCutBlock;
+        if (lastBlock == null || !lastBlock.equals(blockPos)) {
+            return false;
+        }
+        if (UnfoldManager.lastHorizontalCutSign == directionSign) {
+            return false;
+        }
+        Vec3d center = new Vec3d(blockPos.getX() + 0.5, blockPos.getY() + 0.5, blockPos.getZ() + 0.5);
+        return player.getPos().squaredDistanceTo(center) < REVERSE_CUT_RADIUS * REVERSE_CUT_RADIUS;
     }
 
     /** 层证据形状在方块顶面的世界高度；非满方块按实际形状取顶。 */
